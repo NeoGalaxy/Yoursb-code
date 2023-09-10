@@ -11,7 +11,7 @@ pub mod errors;
 pub mod key;
 
 use clap::Subcommand;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
@@ -25,8 +25,13 @@ use clap::Parser;
 /// using a passphrase chosen by the user.
 struct Cli {
     /// The location of the secret key.
-    #[arg(short, long, default_value = ".yoursbcode.key")]
-    keypath: PathBuf,
+    ///
+    /// In command "init", if no value is given then it defaults to "./.yoursbcode.key".
+    ///
+    /// Otherwise, defaults to the first file named ".yoursbcode.key"
+    /// when searching in current directory and recursively in its parent.
+    #[arg(short, long)]
+    keypath: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -60,13 +65,19 @@ fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     match args.command {
-        Commands::Init => key::new_key(&args.keypath),
+        Commands::Init => key::new_key(
+            args.keypath
+                .as_deref()
+                .unwrap_or(Path::new(".yoursbcode.key")),
+        ),
         Commands::Encrypt { file, output } => {
-            let key = key::unlock_key(&args.keypath)?;
+            let keypath = &args.keypath.ok_or(()).or_else(|()| key::find_key())?;
+            let key = key::unlock_key(keypath)?;
             crypto::encrypt(&file, &output, (&key).into())
         }
         Commands::Decrypt { file, output } => {
-            let key = key::unlock_key(&args.keypath)?;
+            let keypath = &args.keypath.ok_or(()).or_else(|()| key::find_key())?;
+            let key = key::unlock_key(keypath)?;
             crypto::decrypt(&file, &output, (&key).into())
         }
     }

@@ -13,6 +13,7 @@ pub enum Error {
     InvalidPasswordError,
     /// The key was invalid, the file was probably encrypted using another key
     InvalidKeyError,
+    NoKey,
 }
 
 /// Macro to call the YoursbError::convert function seemlessly
