@@ -1,0 +1,115 @@
+use crate::errors::{Error::InvalidPasswordError, YoursbError};
+use std::{
+    fs::File,
+    io::{stdout, Read, Write},
+    path::Path,
+};
+
+use chacha20poly1305::{
+    aead::{Aead, OsRng},
+    AeadCore, ChaCha20Poly1305, KeyInit,
+};
+
+use crate::{
+    _try,
+    errors::{self, Error::ConsoleError},
+};
+
+pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
+    println!("Creating file...\n");
+
+    let mut keyfile = _try!(File::create(keypath), [keypath.to_owned()]);
+
+    println!("A new key will get generated, protected by the password you'll enter.\n");
+
+    let mut password = loop {
+        print!("Enter a new password: ");
+        stdout().flush().map_err(ConsoleError)?;
+        let pass = rpassword::read_password().map_err(ConsoleError)?;
+        println!();
+        if pass.len() > 32 {
+            println!("Too long password, max is 32 characters.");
+            println!();
+            continue;
+        }
+        print!("Enter the same password: ");
+        stdout().flush().map_err(ConsoleError)?;
+        if pass == rpassword::read_password().map_err(ConsoleError)? {
+            println!();
+            println!();
+            break pass.into_bytes();
+        } else {
+            println!();
+            println!();
+            println!("Passwords do not match.");
+            println!();
+        }
+    };
+
+    while password.len() < 32 {
+        password.push(0)
+    }
+
+    let padded_password: [u8; 32] = password
+        .try_into()
+        .expect("Padded password doesn't do 32 bytes");
+
+    println!("Password set.");
+    println!();
+
+    println!("Generating a key...");
+    let key = ChaCha20Poly1305::generate_key(OsRng);
+    let key: &[u8] = &key;
+
+    println!();
+    println!("Encrypting key with password...");
+
+    let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let cipher = ChaCha20Poly1305::new((&padded_password).into());
+    let cipherkey = cipher.encrypt(&nonce, key).unwrap();
+
+    _try!(keyfile.write_all(&nonce), [keypath.to_owned()]);
+    _try!(keyfile.write_all(&cipherkey), [keypath.to_owned()]);
+    println!("Done.");
+    Ok(())
+}
+
+pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
+    println!("Opening key file...\n");
+
+    let mut keyfile = _try!(File::open(keypath), [keypath.to_owned()]);
+
+    let mut password = loop {
+        print!("Enter the password: ");
+        stdout().flush().map_err(ConsoleError)?;
+        let pass = rpassword::read_password().map_err(ConsoleError)?;
+        println!();
+        if pass.len() > 32 {
+            println!("Too long password, max is 32 characters.");
+            println!();
+        } else {
+            break pass.into_bytes();
+        }
+    };
+
+    while password.len() < 32 {
+        password.push(0)
+    }
+
+    let padded_password: [u8; 32] = password
+        .try_into()
+        .expect("Padded password doesn't do 32 bytes");
+
+    let mut nonce = [0; 12];
+    let mut cipherkey = Vec::new();
+    _try!(keyfile.read_exact(&mut nonce), [keypath.to_owned()]);
+    _try!(keyfile.read_to_end(&mut cipherkey), [keypath.to_owned()]);
+
+    let cipher = ChaCha20Poly1305::new((&padded_password).into());
+
+    let key = cipher
+        .decrypt((&nonce).into(), cipherkey.as_ref())
+        .map_err(|_| InvalidPasswordError)?;
+
+    Ok(key.try_into().expect("Encrypted key is not the right size"))
+}
