@@ -1,3 +1,5 @@
+//! This module is aimed towards manging the keys, encrypting and decrypting them.
+
 use crate::errors::{Error::InvalidPasswordError, YoursbError};
 use std::{
     fs::File,
@@ -15,6 +17,7 @@ use crate::{
     errors::{self, Error::ConsoleError},
 };
 
+/// Create a key and encrypt it with a passphrase
 pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
     println!("Creating file...\n");
 
@@ -74,6 +77,7 @@ pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
     Ok(())
 }
 
+/// Decrypts an encrypted key using a passphrase
 pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
     println!("Opening key file...\n");
 

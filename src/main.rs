@@ -1,3 +1,11 @@
+//! YourSB Code, an encrypted files manager
+//!
+//! This is an executable able to encrypt files using the ChaCha20Poly1305 algorithm,
+//! secured by a password.
+//!
+//! Note: the password is not directly used to encrypt everything, a random key is used
+//! instead, itself encrypted with the password.
+
 pub mod crypto;
 pub mod errors;
 pub mod key;
@@ -10,7 +18,13 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
+/// YourSB Code, an encrypted files manager.
+///
+/// This is an executable able to encrypt files using the ChaCha20Poly1305
+/// algorithm, secured by a random secret key. The key is itself encrypted
+/// using a passphrase chosen by the user.
 struct Cli {
+    /// The location of the secret key.
     #[arg(short, long, default_value = ".yoursbcode.key")]
     keypath: PathBuf,
     #[command(subcommand)]
@@ -19,20 +33,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create encryption key
+    /// Create an encryption key. Prompts for the password to use while
+    /// creating the key.
     Init,
-    /// An encryption
+    /// Executes an encryption. Prompts for the password to unlock the key.
     Encrypt {
-        /// File to encrypt
+        /// File to encrypt.
         file: PathBuf,
 
         /// Output path of the encrypted file.
         #[arg(short, long, default_value = "output.yoursbcoded")]
         output: PathBuf,
     },
-    /// A decryption
+    /// Executes a decryption. Prompts for the password to unlock the key.
     Decrypt {
-        /// File to decrypt
+        /// File to decrypt.
         file: PathBuf,
 
         /// Output path of the decrypted file.

@@ -1,3 +1,5 @@
+//! module to encrypt the data
+
 use std::{
     fs,
     io::{Read, Write},
@@ -14,6 +16,7 @@ use crate::{
     errors::{self, YoursbError},
 };
 
+/// Encrypts the designated file into the desiganted path
 pub fn encrypt(
     input_path: &Path,
     output_path: &Path,
@@ -35,6 +38,7 @@ pub fn encrypt(
     Ok(())
 }
 
+/// Decrypts the designated file into the desiganted path
 pub fn decrypt(
     input_path: &Path,
     output_path: &Path,
