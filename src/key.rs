@@ -1,6 +1,9 @@
 //! This module is aimed towards manging the keys, encrypting and decrypting them.
 
-use crate::errors::{Error::InvalidPasswordError, YoursbError};
+use crate::{
+    errors::{Error::InvalidPasswordError, YoursbError},
+    passwords::pass_input,
+};
 use std::{
     env::current_dir,
     fs::File,
@@ -26,29 +29,7 @@ pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
 
     println!("A new key will get generated, protected by the password you'll enter.\n");
 
-    let mut password = loop {
-        print!("Enter a new password: ");
-        stdout().flush().map_err(ConsoleError)?;
-        let pass = rpassword::read_password().map_err(ConsoleError)?;
-        println!();
-        if pass.len() > 32 {
-            println!("Too long password, max is 32 characters.");
-            println!();
-            continue;
-        }
-        print!("Enter the same password: ");
-        stdout().flush().map_err(ConsoleError)?;
-        if pass == rpassword::read_password().map_err(ConsoleError)? {
-            println!();
-            println!();
-            break pass.into_bytes();
-        } else {
-            println!();
-            println!();
-            println!("Passwords do not match.");
-            println!();
-        }
-    };
+    let mut password = pass_input("Enter a new password", Some(32))?.into_bytes();
 
     while password.len() < 32 {
         password.push(0)
@@ -128,6 +109,8 @@ pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
     let key = cipher
         .decrypt((&nonce).into(), cipherkey.as_ref())
         .map_err(|_| InvalidPasswordError)?;
+
+    println!("Password valid.");
 
     Ok(key.try_into().expect("Encrypted key is not the right size"))
 }
