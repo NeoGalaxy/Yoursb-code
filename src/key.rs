@@ -5,10 +5,9 @@ use crate::{
     passwords::pass_input,
 };
 use std::{
-    env::current_dir,
     fs::File,
     io::{stdout, Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use chacha20poly1305::{
@@ -57,19 +56,6 @@ pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
     _try!(keyfile.write_all(&cipherkey), [keypath.to_owned()]);
     println!("Done.");
     Ok(())
-}
-
-pub fn find_key() -> Result<PathBuf, errors::Error> {
-    let dir = _try!(current_dir(), [".".into()]);
-
-    for parent in dir.ancestors() {
-        let path = parent.join(".yoursbcode.key");
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
-    Err(errors::Error::NoKey)
 }
 
 /// Decrypts an encrypted key using a passphrase

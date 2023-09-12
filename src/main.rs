@@ -10,13 +10,11 @@ pub mod crypto;
 pub mod errors;
 pub mod key;
 pub mod passwords;
+pub mod project;
 
 use clap::Subcommand;
-use std::{
-    fs,
-    io::Read,
-    path::{Path, PathBuf},
-};
+use project::{find_project, ProjectPath};
+use std::{fs, io::Read, path::PathBuf};
 
 use clap::Parser;
 
@@ -31,14 +29,21 @@ use crate::errors::YoursbError;
 /// algorithm, secured by a random secret key. The key is itself encrypted
 /// using a passphrase chosen by the user.
 pub struct Cli {
-    /// The location of the secret key.
+    /// The location of the project.
     ///
-    /// In command "init", if no value is given then it defaults to "./.yoursbcode.key".
+    /// Either "global", "local" or "local:<PATH>":
     ///
-    /// Otherwise, defaults to the first file named ".yoursbcode.key"
-    /// when searching in current directory and recursively in its parent.
+    /// * "global" will indicate to use a global instance of YourSBCode
+    ///
+    /// * "local" will indicate to look in the current directory and its parents
+    /// searching for a local directory. For the command "init", local will indicate
+    /// to initialize the project in the current directory
+    ///
+    /// * "local:<PATH>" will indicate to look at the project located at PATH
+    ///
+    /// Defaults to "global" if there's a global instance, or "local" otherwise.
     #[arg(short, long)]
-    keypath: Option<PathBuf>,
+    project: Option<ProjectPath>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -47,7 +52,7 @@ pub struct Cli {
 pub enum Commands {
     /// Create an encryption key. Prompts for the password to use while
     /// creating the key.
-    Init,
+    Init {},
 
     /// Executes an encryption. Prompts for the password to unlock the key.
     #[clap(aliases = &["e", "en"])]
@@ -119,22 +124,24 @@ fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     match &args.command {
-        Commands::Init => key::new_key(
-            args.keypath
-                .as_deref()
-                .unwrap_or(Path::new(".yoursbcode.key")),
-        ),
+        Commands::Init {} => key::new_key(&args.project.unwrap_or(ProjectPath::Global).get_path()?),
         Commands::Encrypt { file, output } => {
             let input = _try!(fs::File::open(file), [file.to_owned()]);
             let bytes = input.bytes().map(|e| e.unwrap()); // TODO
 
-            let keypath = &args.keypath.ok_or(()).or_else(|()| key::find_key())?;
-            let key = key::unlock_key(keypath)?;
+            let keypath = args
+                .project
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+            let key = key::unlock_key(&keypath)?;
             crypto::encrypt(bytes, output, (&key).into())
         }
         Commands::Decrypt { file, output } => {
-            let keypath = &args.keypath.ok_or(()).or_else(|()| key::find_key())?;
-            let key = key::unlock_key(keypath)?;
+            let keypath = args
+                .project
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+            let key = key::unlock_key(&keypath)?;
 
             let decrypted = crypto::decrypt(file, (&key).into())?;
             _try!(fs::write(output, decrypted), [output.to_owned()]);

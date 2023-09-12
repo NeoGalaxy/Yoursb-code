@@ -17,6 +17,9 @@ pub enum Error {
     InvalidKeyError,
     NoKey,
     Password(PasswordError),
+    NoProject,
+    NoConfigDir,
+    NoLocalProj,
 }
 
 impl From<PasswordError> for Error {

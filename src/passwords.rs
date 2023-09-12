@@ -16,6 +16,7 @@ use crate::errors;
 use crate::errors::Error::ConsoleError;
 use crate::errors::YoursbError;
 use crate::key;
+use crate::project::find_project;
 use crate::Action;
 use crate::Cli;
 
@@ -50,11 +51,11 @@ pub struct Password {
 }
 
 pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
-    let keypath = &args
-        .keypath
-        .clone()
-        .ok_or(())
-        .or_else(|()| key::find_key())?;
+    let keypath = args
+        .project
+        .as_ref()
+        .map(|p| p.find())
+        .unwrap_or_else(find_project)?;
 
     let pass_dir = keypath
         .parent()
@@ -95,12 +96,12 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                     .iter()
                     .copied(),
                 &id,
-                &key::unlock_key(keypath)?.into(),
+                &key::unlock_key(&keypath)?.into(),
             )
         }
         Action::Get { identifier } => {
             let id_path = pass_dir.join(identifier);
-            let full_data = crypto::decrypt(&id_path, &key::unlock_key(keypath)?.into())?;
+            let full_data = crypto::decrypt(&id_path, &key::unlock_key(&keypath)?.into())?;
 
             let full_data: Password = serde_json::from_str(
                 std::str::from_utf8(&full_data)
