@@ -41,7 +41,7 @@ pub struct Cli {
     ///
     /// * "local:<PATH>" will indicate to look at the project located at PATH
     ///
-    /// Defaults to "global" if there's a global instance, or "local" otherwise.
+    /// Defaults to "local" if there's a local instance, or "global" otherwise.
     #[arg(short, long)]
     project: Option<ProjectPath>,
     #[command(subcommand)]
@@ -50,8 +50,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Create an encryption key. Prompts for the password to use while
-    /// creating the key.
+    /// Create a YourSBCode instance. Prompts for the password to use for this instance.
     Init {},
 
     /// Executes an encryption. Prompts for the password to unlock the key.
