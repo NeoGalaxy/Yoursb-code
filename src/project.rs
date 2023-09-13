@@ -1,8 +1,16 @@
-use std::{env::current_dir, fmt::Display, path::PathBuf, str::FromStr};
+use std::{
+    env::current_dir,
+    ffi::OsStr,
+    fmt::Display,
+    fs::read_dir,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use crate::{
     _try,
     errors::{self, YoursbError},
+    FilePosArg,
 };
 
 /// The name of the directory in which everything is stored when in a local dir
@@ -22,6 +30,32 @@ pub const FILES_DIR: &str = "files";
 pub enum ProjectPath {
     Local(Option<PathBuf>),
     Global,
+}
+
+pub enum FilePos {
+    Internal(PathBuf),
+    External(PathBuf),
+}
+
+impl From<FilePosArg> for FilePos {
+    fn from(value: FilePosArg) -> Self {
+        if let Some(i) = value.internal {
+            Self::Internal(i)
+        } else if let Some(e) = value.external {
+            Self::External(e)
+        } else {
+            panic!("Expected `InternalPosArg` to have either an internal or external value");
+        }
+    }
+}
+
+impl FilePos {
+    pub fn to_path(self, project_path: &Path) -> PathBuf {
+        match self {
+            FilePos::External(e) => e,
+            FilePos::Internal(i) => project_path.join(FILES_DIR).join(i),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -111,4 +145,44 @@ pub fn find_local_projet() -> Result<Option<PathBuf>, errors::Error> {
 pub fn find_global_project() -> Option<PathBuf> {
     let config_dir = dirs::config_local_dir()?.join(GLOBAL_CONFIG_NAME);
     config_dir.canonicalize().ok()
+}
+
+pub fn find_files(
+    root: PathBuf,
+    prefix: &str,
+) -> Result<impl Iterator<Item = Result<PathBuf, errors::Error>>, errors::Error> {
+    let final_path = root.join(FILES_DIR).join(prefix);
+
+    let (dir, file_prefix) = if final_path.is_dir() {
+        (prefix.into(), String::from(""))
+    } else {
+        let prefix = Path::new(prefix);
+        (
+            prefix.parent().unwrap_or(Path::new("")).to_owned(),
+            prefix
+                .file_name()
+                .unwrap_or(OsStr::new(""))
+                .to_str()
+                .unwrap()
+                .to_owned(),
+        )
+    };
+
+    // To allow both closures to own it
+    let dir2 = dir.clone();
+
+    Ok(_try!(
+        read_dir(root.join(FILES_DIR).join(dir.clone())),
+        [dir.to_owned()]
+    )
+    .map(move |subdir| {
+        let subpath = _try!(subdir, [(dir).to_owned()]);
+        Ok(subpath.file_name())
+    })
+    .filter(move |e| {
+        e.as_ref()
+            .map(|name| name.to_string_lossy().starts_with(&file_prefix))
+            .unwrap_or(true)
+    })
+    .map(move |e| e.map(|name| dir2.join(name))))
 }

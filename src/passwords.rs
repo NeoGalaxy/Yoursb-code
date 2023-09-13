@@ -22,7 +22,7 @@ use crate::Cli;
 
 use serde::{Deserialize, Serialize};
 
-const PASSWORD_DIR: &str = ".passwords";
+const PASSWORD_DIR: &str = "passwords";
 
 #[derive(Debug)]
 pub enum PasswordError {
@@ -51,13 +51,13 @@ pub struct Password {
 }
 
 pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
-    let keypath = args
+    let proj_dir = args
         .project
         .as_ref()
         .map(|p| p.find())
         .unwrap_or_else(find_project)?;
 
-    let pass_dir = keypath
+    let pass_dir = proj_dir
         .parent()
         .unwrap_or(Path::new("."))
         .join(PASSWORD_DIR);
@@ -96,12 +96,12 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                     .iter()
                     .copied(),
                 &id,
-                &key::unlock_key(&keypath)?.into(),
+                &key::unlock_key(&proj_dir)?.into(),
             )
         }
         Action::Get { identifier } => {
             let id_path = pass_dir.join(identifier);
-            let full_data = crypto::decrypt(&id_path, &key::unlock_key(&keypath)?.into())?;
+            let full_data = crypto::decrypt(&id_path, &key::unlock_key(&proj_dir)?.into())?;
 
             let full_data: Password = serde_json::from_str(
                 std::str::from_utf8(&full_data)

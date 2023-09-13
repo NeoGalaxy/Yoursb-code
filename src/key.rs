@@ -22,7 +22,7 @@ use crate::{
 
 /// Create a key and encrypt it with a passphrase
 pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
-    println!("Creating file...\n");
+    println!("Creating key...\n");
 
     let mut keyfile = _try!(File::create(keypath), [keypath.to_owned()]);
 

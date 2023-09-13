@@ -12,9 +12,13 @@ pub mod key;
 pub mod passwords;
 pub mod project;
 
-use clap::Subcommand;
-use project::{find_project, ProjectPath};
-use std::{fs, io::Read, path::PathBuf};
+use clap::{Args, Subcommand};
+use project::{find_project, FilePos, ProjectPath, KEY_NAME};
+use std::{
+    fs::{self, create_dir_all},
+    io::Read,
+    path::PathBuf,
+};
 
 use clap::Parser;
 
@@ -50,38 +54,60 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Create a YourSBCode instance. Prompts for the password to use for this instance.
+    /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
     Init {},
 
-    /// Executes an encryption. Prompts for the password to unlock the key.
+    /// Executes an encryption. Prompts for the passphrase to unlock the key.
     #[clap(aliases = &["e", "en"])]
     Encrypt {
         /// File to encrypt.
         file: PathBuf,
 
-        /// Output path of the encrypted file.
-        #[arg(short, long, default_value = "output.yoursbcoded")]
-        output: PathBuf,
+        /// output file.
+        #[clap(flatten)]
+        output: FilePosArg,
     },
 
-    /// Executes a decryption. Prompts for the password to unlock the key.
+    /// Executes a decryption. Prompts for the passphrase to unlock the key.
     #[clap(aliases = &["d", "de"])]
     Decrypt {
-        /// File to decrypt.
-        file: PathBuf,
+        /// input file.
+        #[clap(flatten)]
+        input: FilePosArg,
 
         /// Output path of the decrypted file.
         #[arg(short, long, default_value = "output.txt")]
         output: PathBuf,
     },
 
-    /// Executes a decryption. Prompts for the password to unlock the key.
+    /// Displays the elements in the global YourSBCode instance. The displayed element ids
+    /// stops at the first encountered `/` after the prefix. This does NOT require the
+    /// passphrase.
+    Ls {
+        /// The prefix of the elements to display
+        #[clap(default_value = ".")]
+        prefix: String,
+    },
+
+    /// Executes a decryption. Prompts for the passphrase to unlock the key.
     #[clap(aliases = &["p", "pass"])]
     Password {
         /// The action to do.
         #[command(subcommand)]
         action: Action,
     },
+}
+
+#[derive(Debug, Args, Clone)]
+#[group(required = true, multiple = false)]
+pub struct FilePosArg {
+    /// Identifier of the internal file to the YourSBCode instance
+    #[arg(id = "identifier", short, long)]
+    internal: Option<PathBuf>,
+
+    /// Path to the encrypted file
+    #[arg(id = "path", short, long)]
+    external: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -123,29 +149,76 @@ fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     match &args.command {
-        Commands::Init {} => key::new_key(&args.project.unwrap_or(ProjectPath::Global).get_path()?),
+        Commands::Init {} => {
+            let project = args.project.unwrap_or(ProjectPath::Global);
+            match &project {
+                ProjectPath::Local(path) => {
+                    println!("Creating YourSBCode instance in dir {path:?}")
+                }
+                ProjectPath::Global => println!("Creating global YourSBCode instance"),
+            }
+            let project_dir = project.get_path()?;
+
+            let keypath = project_dir.join(KEY_NAME);
+            if keypath.exists() {
+                return Err(errors::Error::ProjectAlreadyExists);
+            }
+
+            if let Some(p) = keypath.parent() {
+                let _ = create_dir_all(p);
+            }
+
+            key::new_key(&keypath)
+        }
+
         Commands::Encrypt { file, output } => {
+            let output: FilePos = output.clone().into();
             let input = _try!(fs::File::open(file), [file.to_owned()]);
             let bytes = input.bytes().map(|e| e.unwrap()); // TODO
 
-            let keypath = args
+            let project_path = args
                 .project
                 .map(|p| p.find())
                 .unwrap_or_else(find_project)?;
-            let key = key::unlock_key(&keypath)?;
-            crypto::encrypt(bytes, output, (&key).into())
-        }
-        Commands::Decrypt { file, output } => {
-            let keypath = args
-                .project
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
-            let key = key::unlock_key(&keypath)?;
 
-            let decrypted = crypto::decrypt(file, (&key).into())?;
+            let key = key::unlock_key(&project_path.join(KEY_NAME))?;
+
+            let output = output.to_path(&project_path);
+
+            crypto::encrypt(bytes, &output, (&key).into())
+        }
+
+        Commands::Decrypt { input, output } => {
+            let input: FilePos = (*input).clone().into();
+
+            let project_path = args
+                .project
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+
+            let key = key::unlock_key(&project_path.join(KEY_NAME))?;
+
+            let input = input.to_path(&project_path);
+
+            let decrypted = crypto::decrypt(&input, (&key).into())?;
             _try!(fs::write(output, decrypted), [output.to_owned()]);
             Ok(())
         }
+
+        Commands::Ls { prefix } => {
+            let project_path = args
+                .project
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+
+            project::find_files(project_path, prefix)?.for_each(|e| {
+                if let Ok(p) = e {
+                    println!("{p:?}");
+                }
+            });
+            Ok(())
+        }
+
         Commands::Password { action } => passwords::run(action, &args),
     }
 }
