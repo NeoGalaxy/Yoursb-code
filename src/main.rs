@@ -15,8 +15,8 @@ pub mod project;
 use clap::{Args, Subcommand};
 use project::{find_project, FilePos, ProjectPath, KEY_NAME};
 use std::{
-    fs::{self, create_dir_all},
-    io::Read,
+    fs::{self, create_dir_all, remove_dir_all},
+    io::{stdin, Read},
     path::PathBuf,
 };
 
@@ -57,6 +57,13 @@ pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
     Init {},
 
+    /// Deletes the YourSBCode instance designated by --project.
+    Delete {
+        /// Remove the prompt asking if user is sure
+        #[clap(short)]
+        force: bool,
+    },
+
     /// Executes an encryption. Prompts for the passphrase to unlock the key.
     #[clap(aliases = &["e", "en"])]
     Encrypt {
@@ -65,7 +72,7 @@ pub enum Commands {
 
         /// output file.
         #[clap(flatten)]
-        output: FilePosArg,
+        output: OutputFilePosArg,
     },
 
     /// Executes a decryption. Prompts for the passphrase to unlock the key.
@@ -73,16 +80,15 @@ pub enum Commands {
     Decrypt {
         /// input file.
         #[clap(flatten)]
-        input: FilePosArg,
+        input: InputFilePosArg,
 
         /// Output path of the decrypted file.
         #[arg(short, long, default_value = "output.txt")]
         output: PathBuf,
     },
 
-    /// Displays the elements in the global YourSBCode instance. The displayed element ids
-    /// stops at the first encountered `/` after the prefix. This does NOT require the
-    /// passphrase.
+    /// Displays the elements in the global YourSBCode instance. The displayed element ids stops
+    /// {n}at the first encountered `/` after the prefix. This does NOT require the passphrase.
     Ls {
         /// The prefix of the elements to display
         #[clap(default_value = ".")]
@@ -100,12 +106,24 @@ pub enum Commands {
 
 #[derive(Debug, Args, Clone)]
 #[group(required = true, multiple = false)]
-pub struct FilePosArg {
-    /// Identifier of the internal file to the YourSBCode instance
+pub struct InputFilePosArg {
+    /// Identifier of the internal file to decrypt from the YourSBCode instance
     #[arg(id = "identifier", short, long)]
     internal: Option<PathBuf>,
 
-    /// Path to the encrypted file
+    /// Path to the encrypted input file
+    #[arg(id = "path", short, long)]
+    external: Option<PathBuf>,
+}
+
+#[derive(Debug, Args, Clone)]
+#[group(required = true, multiple = false)]
+pub struct OutputFilePosArg {
+    /// Identifier of the internal file to store the encrypted input in the YourSBCode instance
+    #[arg(id = "identifier", short, long)]
+    internal: Option<PathBuf>,
+
+    /// Path towards which we'll encrypt the file
     #[arg(id = "path", short, long)]
     external: Option<PathBuf>,
 }
@@ -169,6 +187,28 @@ fn main() -> Result<(), errors::Error> {
             }
 
             key::new_key(&keypath)
+        }
+
+        Commands::Delete { force } => {
+            let project_path = args
+                .project
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+
+            if !force {
+                println!("This will delete all the content of directory {project_path:?}.");
+                println!("Are you sure? (Y/n)");
+                let mut buf = [0];
+                stdin()
+                    .read_exact(&mut buf)
+                    .map_err(errors::Error::ConsoleError)?;
+                if (buf[0] as char).to_ascii_lowercase() != 'y' {
+                    return Err(errors::Error::Abort);
+                }
+            }
+
+            _try!(remove_dir_all(&project_path), [project_path]);
+            Ok(())
         }
 
         Commands::Encrypt { file, output } => {

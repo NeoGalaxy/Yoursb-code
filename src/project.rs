@@ -10,7 +10,7 @@ use std::{
 use crate::{
     _try,
     errors::{self, YoursbError},
-    FilePosArg,
+    InputFilePosArg, OutputFilePosArg,
 };
 
 /// The name of the directory in which everything is stored when in a local dir
@@ -37,8 +37,20 @@ pub enum FilePos {
     External(PathBuf),
 }
 
-impl From<FilePosArg> for FilePos {
-    fn from(value: FilePosArg) -> Self {
+impl From<InputFilePosArg> for FilePos {
+    fn from(value: InputFilePosArg) -> Self {
+        if let Some(i) = value.internal {
+            Self::Internal(i)
+        } else if let Some(e) = value.external {
+            Self::External(e)
+        } else {
+            panic!("Expected `InternalPosArg` to have either an internal or external value");
+        }
+    }
+}
+
+impl From<OutputFilePosArg> for FilePos {
+    fn from(value: OutputFilePosArg) -> Self {
         if let Some(i) = value.internal {
             Self::Internal(i)
         } else if let Some(e) = value.external {

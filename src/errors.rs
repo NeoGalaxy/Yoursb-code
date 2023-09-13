@@ -21,6 +21,7 @@ pub enum Error {
     NoConfigDir,
     NoLocalProj,
     ProjectAlreadyExists,
+    Abort,
 }
 
 impl From<PasswordError> for Error {
