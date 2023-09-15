@@ -65,12 +65,12 @@ pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
     let mut keyfile = _try!(File::open(keypath), [keypath.to_owned()]);
 
     let mut password = loop {
-        print!("Enter the password: ");
+        print!("Enter the passphrase: ");
         stdout().flush().map_err(ConsoleError)?;
         let pass = rpassword::read_password().map_err(ConsoleError)?;
         println!();
         if pass.len() > 32 {
-            println!("Too long password, max is 32 characters.");
+            println!("Too long passphrase, max is 32 characters.");
             println!();
         } else {
             break pass.into_bytes();
@@ -83,7 +83,7 @@ pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
 
     let padded_password: [u8; 32] = password
         .try_into()
-        .expect("Padded password doesn't do 32 bytes");
+        .expect("Padded passphrase doesn't do 32 bytes");
 
     let mut nonce = [0; 12];
     let mut cipherkey = Vec::new();
@@ -96,7 +96,7 @@ pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
         .decrypt((&nonce).into(), cipherkey.as_ref())
         .map_err(|_| InvalidPasswordError)?;
 
-    println!("Password valid.");
+    println!("Passphrase valid.");
 
     Ok(key.try_into().expect("Encrypted key is not the right size"))
 }

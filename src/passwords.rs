@@ -17,6 +17,7 @@ use crate::errors::Error::ConsoleError;
 use crate::errors::YoursbError;
 use crate::key;
 use crate::project::find_project;
+use crate::project::KEY_NAME;
 use crate::Action;
 use crate::Cli;
 
@@ -78,6 +79,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
             let pass = if *prompt {
                 pass_input("Enter the password to save", None)?
             } else {
+                println!("Generating random password...");
                 OsRng
                     .sample_iter::<char, _>(Standard)
                     .take(*len as usize)
@@ -89,6 +91,8 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                 data: data.clone(),
             };
 
+            println!("Password will be saved as {:?}", identifier);
+
             crypto::encrypt(
                 serde_json::to_string(&full_data)
                     .unwrap()
@@ -96,12 +100,15 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                     .iter()
                     .copied(),
                 &id,
-                &key::unlock_key(&proj_dir)?.into(),
-            )
+                &key::unlock_key(&proj_dir.join(KEY_NAME))?.into(),
+            )?;
+            println!("Password saved");
+            Ok(())
         }
         Action::Get { identifier } => {
             let id_path = pass_dir.join(identifier);
-            let full_data = crypto::decrypt(&id_path, &key::unlock_key(&proj_dir)?.into())?;
+            let full_data =
+                crypto::decrypt(&id_path, &key::unlock_key(&proj_dir.join(KEY_NAME))?.into())?;
 
             let full_data: Password = serde_json::from_str(
                 std::str::from_utf8(&full_data)
