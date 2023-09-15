@@ -57,14 +57,15 @@ pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
     Init {},
 
-    /// Deletes the YourSBCode instance designated by --project.
+    /// Deletes the YourSBCode instance designated by --project. Alias: `del`
+    #[clap(aliases = &["del"])]
     Delete {
         /// Remove the prompt asking if user is sure
         #[clap(short)]
         force: bool,
     },
 
-    /// Executes an encryption. Prompts for the passphrase to unlock the key.
+    /// Executes an encryption. Prompts for the passphrase to unlock the key. Aliases: `e`, `en`
     #[clap(aliases = &["e", "en"])]
     Encrypt {
         /// File to encrypt.
@@ -75,7 +76,7 @@ pub enum Commands {
         output: OutputFilePosArg,
     },
 
-    /// Executes a decryption. Prompts for the passphrase to unlock the key.
+    /// Executes a decryption. Prompts for the passphrase to unlock the key. Aliases: `d`, `de`
     #[clap(aliases = &["d", "de"])]
     Decrypt {
         /// input file.
@@ -95,7 +96,7 @@ pub enum Commands {
         prefix: String,
     },
 
-    /// Executes a decryption. Prompts for the passphrase to unlock the key.
+    /// Executes a decryption. Prompts for the passphrase to unlock the key. Aliases: `p`, `pass`
     #[clap(aliases = &["p", "pass"])]
     Password {
         /// The action to do.
@@ -130,7 +131,7 @@ pub struct OutputFilePosArg {
 
 #[derive(Subcommand)]
 pub enum Action {
-    /// Creates and encrypts a password
+    /// Creates and encrypts a password. Alias: `c`
     #[clap(aliases = &["c"])]
     Create {
         /// How to name/identify the password
@@ -148,15 +149,16 @@ pub enum Action {
         #[arg(short, long, default_value = "15")]
         len: u16,
     },
-    /// Queries for a password
+    /// Queries for a password, alias: `g`
     #[clap(aliases = &["g"])]
     Get {
         /// The password to find
         identifier: String,
     },
-    /// List all password ids
+    /// List all password ids, alias: `ls`
     List,
-    /// Delete a password
+    /// Delete a password, alias: `del`
+    #[clap(aliases = &["del"])]
     Delete {
         /// The password to delete
         identifier: String,

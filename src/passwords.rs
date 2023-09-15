@@ -1,3 +1,5 @@
+//! Module that manages passwords
+
 use std::fs;
 use std::fs::read_dir;
 use std::io::stdout;
@@ -23,8 +25,10 @@ use crate::Cli;
 
 use serde::{Deserialize, Serialize};
 
+/// The name of the directory containing passwords
 const PASSWORD_DIR: &str = "passwords";
 
+/// An error while handleing passwords
 #[derive(Debug)]
 pub enum PasswordError {
     IdAlreadyUsed(String),
@@ -45,12 +49,16 @@ impl From<arboard::Error> for errors::Error {
     }
 }
 
+/// A password with optionnal data
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Password {
     pub password: String,
     pub data: Option<String>,
 }
 
+/// Run the password manager
+///
+/// TODO: make functions with each fonctionnality
 pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
     let proj_dir = args
         .project
@@ -149,6 +157,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
     }
 }
 
+/// Prompts for a new password
 pub fn pass_input(prompt: &str, limit: Option<u16>) -> Result<String, errors::Error> {
     loop {
         print!("{prompt}: ");

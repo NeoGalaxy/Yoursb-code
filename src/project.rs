@@ -1,3 +1,5 @@
+//! Module relative to anything helping finding a project
+
 use std::{
     env::current_dir,
     ffi::OsStr,
@@ -25,7 +27,8 @@ pub const KEY_NAME: &str = "key";
 /// The subdirectory in which files are stored
 pub const FILES_DIR: &str = "files";
 
-/// A datastructure meant to designate if we use the global project or a local one
+/// A datastructure meant to designate if we use the global project or a local one.
+/// It implements [`FromStr`] with as format either `global`, `local` or `local:<path>`.
 #[derive(Clone)]
 pub enum ProjectPath {
     Local(Option<PathBuf>),
@@ -70,6 +73,7 @@ impl FilePos {
     }
 }
 
+/// Error when the project path has an invalid syntax
 #[derive(Debug)]
 pub struct InvalidSyntax();
 
@@ -142,6 +146,11 @@ pub fn find_project() -> Result<PathBuf, errors::Error> {
         .ok_or(errors::Error::NoProject)
 }
 
+/// Seaches for a project in the current dir and all its parents. Returns `Err(...)` if there's
+/// an issue knowing the current directory, and returns `Ok(None)` if no projet was found.
+///
+/// If a project is found, returns `Ok(path)` with the path directing to the root dir of the
+/// project
 pub fn find_local_projet() -> Result<Option<PathBuf>, errors::Error> {
     let dir = _try!(current_dir(), [".".into()]);
 
@@ -154,11 +163,15 @@ pub fn find_local_projet() -> Result<Option<PathBuf>, errors::Error> {
     Ok(None)
 }
 
+/// Searches for a project in the config directories, returns `None` if it can't be found.
 pub fn find_global_project() -> Option<PathBuf> {
     let config_dir = dirs::config_local_dir()?.join(GLOBAL_CONFIG_NAME);
     config_dir.canonicalize().ok()
 }
 
+/// Searches for files and directory in the project root directory `root` with the prefix `prefix`.
+///
+/// Does not recursively seaches for files in found directories
 pub fn find_files(
     root: PathBuf,
     prefix: &str,
