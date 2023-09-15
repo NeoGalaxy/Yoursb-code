@@ -26,7 +26,7 @@ use crate::Cli;
 use serde::{Deserialize, Serialize};
 
 /// The name of the directory containing passwords
-const PASSWORD_DIR: &str = "passwords";
+pub const PASSWORD_DIR: &str = "passwords";
 
 /// An error while handleing passwords
 #[derive(Debug)]
@@ -61,7 +61,7 @@ pub struct Password {
 /// TODO: make functions with each fonctionnality
 pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
     let proj_dir = args
-        .project
+        .instance
         .as_ref()
         .map(|p| p.find())
         .unwrap_or_else(find_project)?;

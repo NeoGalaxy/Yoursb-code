@@ -35,6 +35,7 @@ pub enum ProjectPath {
     Global,
 }
 
+/// A file position in the CLI. Either inside the instance or a path from current dir
 pub enum FilePos {
     Internal(PathBuf),
     External(PathBuf),

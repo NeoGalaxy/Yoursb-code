@@ -19,10 +19,16 @@ use std::{
     io::{stdin, Read},
     path::PathBuf,
 };
+use walkdir::WalkDir;
 
 use clap::Parser;
 
-use crate::errors::YoursbError;
+use crate::{
+    crypto::{decrypt, encrypt},
+    errors::YoursbError,
+    passwords::PASSWORD_DIR,
+    project::FILES_DIR,
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -33,7 +39,7 @@ use crate::errors::YoursbError;
 /// algorithm, secured by a random secret key. The key is itself encrypted
 /// using a passphrase chosen by the user.
 pub struct Cli {
-    /// The location of the project.
+    /// The location of the current instance.
     ///
     /// Either "global", "local" or "local:<PATH>":
     ///
@@ -41,13 +47,14 @@ pub struct Cli {
     ///
     /// * "local" will indicate to look in the current directory and its parents
     /// searching for a local directory. For the command "init", local will indicate
-    /// to initialize the project in the current directory
+    /// to initialize the instance in the current directory
     ///
-    /// * "local:<PATH>" will indicate to look at the project located at PATH
+    /// * "local:<PATH>" will indicate to look at the instance located at PATH
     ///
-    /// Defaults to "local" if there's a local instance, or "global" otherwise.
+    /// Defaults to "local" if there's a local instance, or "global" otherwise,
+    /// except for command `init`
     #[arg(short, long)]
-    project: Option<ProjectPath>,
+    instance: Option<ProjectPath>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -57,7 +64,7 @@ pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
     Init {},
 
-    /// Deletes the YourSBCode instance designated by --project. Alias: `del`
+    /// Deletes the YourSBCode instance designated by --instance. Alias: `del`
     #[clap(aliases = &["del"])]
     Delete {
         /// Remove the prompt asking if user is sure
@@ -102,6 +109,30 @@ pub enum Commands {
         /// The action to do.
         #[command(subcommand)]
         action: Action,
+    },
+
+    /// Copies the encrypted files from an instance to another. One of them is the one specified
+    /// by `--instance` on the start of the command (current instance), the other one is either
+    /// from the option `--from` or `--into` in this subcommand (remote instance).
+    ///
+    /// This command will first ask the key of the "current instance" and then the one of the
+    /// "remote instance".
+    #[clap(aliases = &["up"])]
+    #[group(required = true, multiple = false)]
+    Update {
+        /// Location of the "remote" instance. The command will then copy files from this instance
+        /// into the "current instance".
+        ///
+        /// Either "global", "local" or "local:<PATH>".
+        #[arg(short, long)]
+        from: Option<ProjectPath>,
+
+        /// Location of the "remote instance". The command will then copy files from the
+        /// "current instance" into this "remote instance".
+        ///
+        /// Either "global", "local" or "local:<PATH>".
+        #[arg(short, long)]
+        into: Option<ProjectPath>,
     },
 }
 
@@ -170,16 +201,16 @@ fn main() -> Result<(), errors::Error> {
 
     match &args.command {
         Commands::Init {} => {
-            let project = args.project.unwrap_or(ProjectPath::Global);
-            match &project {
+            let instance = args.instance.unwrap_or(ProjectPath::Global);
+            match &instance {
                 ProjectPath::Local(path) => {
                     println!("Creating YourSBCode instance in dir {path:?}")
                 }
                 ProjectPath::Global => println!("Creating global YourSBCode instance"),
             }
-            let project_dir = project.get_path()?;
+            let instance_dir = instance.get_path()?;
 
-            let keypath = project_dir.join(KEY_NAME);
+            let keypath = instance_dir.join(KEY_NAME);
             if keypath.exists() {
                 return Err(errors::Error::ProjectAlreadyExists);
             }
@@ -192,13 +223,13 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Delete { force } => {
-            let project_path = args
-                .project
+            let instance_path = args
+                .instance
                 .map(|p| p.find())
                 .unwrap_or_else(find_project)?;
 
             if !force {
-                println!("This will delete all the content of directory {project_path:?}.");
+                println!("This will delete all the content of directory {instance_path:?}.");
                 println!("Are you sure? (Y/n)");
                 let mut buf = [0];
                 stdin()
@@ -209,7 +240,7 @@ fn main() -> Result<(), errors::Error> {
                 }
             }
 
-            _try!(remove_dir_all(&project_path), [project_path]);
+            _try!(remove_dir_all(&instance_path), [instance_path]);
             Ok(())
         }
 
@@ -218,14 +249,14 @@ fn main() -> Result<(), errors::Error> {
             let input = _try!(fs::File::open(file), [file.to_owned()]);
             let bytes = input.bytes().map(|e| e.unwrap()); // TODO
 
-            let project_path = args
-                .project
+            let instance_path = args
+                .instance
                 .map(|p| p.find())
                 .unwrap_or_else(find_project)?;
 
-            let key = key::unlock_key(&project_path.join(KEY_NAME))?;
+            let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
 
-            let output = output.to_path(&project_path);
+            let output = output.to_path(&instance_path);
 
             crypto::encrypt(bytes, &output, (&key).into())
         }
@@ -233,14 +264,14 @@ fn main() -> Result<(), errors::Error> {
         Commands::Decrypt { input, output } => {
             let input: FilePos = (*input).clone().into();
 
-            let project_path = args
-                .project
+            let instance_path = args
+                .instance
                 .map(|p| p.find())
                 .unwrap_or_else(find_project)?;
 
-            let key = key::unlock_key(&project_path.join(KEY_NAME))?;
+            let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
 
-            let input = input.to_path(&project_path);
+            let input = input.to_path(&instance_path);
 
             let decrypted = crypto::decrypt(&input, (&key).into())?;
             _try!(fs::write(output, decrypted), [output.to_owned()]);
@@ -248,12 +279,12 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Ls { prefix } => {
-            let project_path = args
-                .project
+            let instance_path = args
+                .instance
                 .map(|p| p.find())
                 .unwrap_or_else(find_project)?;
 
-            project::find_files(project_path, prefix)?.for_each(|e| {
+            project::find_files(instance_path, prefix)?.for_each(|e| {
                 if let Ok(p) = e {
                     println!("{p:?}");
                 }
@@ -262,5 +293,79 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Password { action } => passwords::run(action, &args),
+
+        Commands::Update { from, into } => {
+            println!("Finding instances...");
+
+            let instance_path = args
+                .instance
+                .map(|p| p.find())
+                .unwrap_or_else(find_project)?;
+
+            let (source, dest, source_is_remote) = if let Some(source) = from {
+                let source_path = source.find()?;
+                (source_path, instance_path, true)
+            } else if let Some(dest) = into {
+                let dest_path = dest.find()?;
+                (instance_path, dest_path, false)
+            } else {
+                unreachable!()
+            };
+
+            println!("Unlocking current instance key...");
+            let (source_key, dest_key);
+            if source_is_remote {
+                dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
+                println!("Unlocking current instance key...");
+                source_key = key::unlock_key(&source.join(KEY_NAME))?;
+            } else {
+                source_key = key::unlock_key(&source.join(KEY_NAME))?;
+                println!("Unlocking current instance key...");
+                dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
+            };
+
+            let copy_dir = |subdir| {
+                for entry in WalkDir::new(&source.join(subdir)) {
+                    let entry: PathBuf = match entry {
+                        Ok(e) => e.into_path(),
+                        Err(err) => {
+                            eprintln!("ERROR: {err}");
+                            continue;
+                        }
+                    };
+
+                    if !entry.is_file() {
+                        eprintln!("ERROR: entry {entry:?} is neither a directory nor a file");
+                        continue;
+                    }
+
+                    let decrypted = match decrypt(&entry, (&source_key).into()) {
+                        Ok(d) => d,
+                        Err(err) => {
+                            eprintln!("DECRYPTING ERROR: {err:?}");
+                            continue;
+                        }
+                    };
+
+                    let dest_file = dest.join(
+                        entry
+                            .strip_prefix(source.clone())
+                            .expect("Internal error: entry isn't in source;"),
+                    );
+                    match encrypt(decrypted.into_iter(), &dest_file, (&dest_key).into()) {
+                        Ok(d) => d,
+                        Err(err) => {
+                            eprintln!("DECRYPTING ERROR: {err:?}");
+                        }
+                    }
+                }
+            };
+            println!("Copying passwords...");
+            copy_dir(PASSWORD_DIR);
+            println!("Copying regular files...");
+            copy_dir(FILES_DIR);
+
+            Ok(())
+        }
     }
 }
