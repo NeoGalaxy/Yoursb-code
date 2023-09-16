@@ -9,7 +9,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use chacha20poly1305::aead::OsRng;
-use rand::distributions::Standard;
+
+use rand::distributions::Uniform;
 use rand::Rng;
 
 use crate::_try;
@@ -84,13 +85,26 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                 return Err(PasswordError::IdAlreadyUsed(identifier.clone()).into());
             }
 
+            let sections = ['a'..='z', 'A'..='Z', '!'..='@'];
+            let sections_len = sections
+                .iter()
+                .fold(0, |acc, s| acc + 1 + *s.end() as u32 - *s.start() as u32);
+
             let pass = if *prompt {
                 pass_input("Enter the password to save", None)?
             } else {
                 println!("Generating random password...");
                 OsRng
-                    .sample_iter::<char, _>(Standard)
+                    .sample_iter(Uniform::new_inclusive(0, sections_len - 1))
                     .take(*len as usize)
+                    .map(|mut i| {
+                        let mut j = 0;
+                        while i > 1 + *sections[j].end() as u32 - *sections[j].start() as u32 {
+                            i -= 1 + *sections[j].end() as u32 - *sections[j].start() as u32;
+                            j += 1;
+                        }
+                        sections[j].clone().nth(i as usize).unwrap()
+                    })
                     .collect()
             };
 

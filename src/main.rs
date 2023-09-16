@@ -133,6 +133,16 @@ pub enum Commands {
         /// Either "global", "local" or "local:<PATH>".
         #[arg(short, long)]
         into: Option<ProjectPath>,
+
+        /// If set, passwords will be copied. If neither `--passwords` nor `--files` is set,
+        /// copies both.
+        #[arg(short, long)]
+        passwords: bool,
+
+        /// If set, files will be copied. If neither `--passwords` nor `--files` is set,
+        /// copies both.
+        #[arg(short, long)]
+        files: bool,
     },
 }
 
@@ -294,7 +304,12 @@ fn main() -> Result<(), errors::Error> {
 
         Commands::Password { action } => passwords::run(action, &args),
 
-        Commands::Update { from, into } => {
+        Commands::Update {
+            from,
+            into,
+            passwords,
+            files,
+        } => {
             println!("Finding instances...");
 
             let instance_path = args
@@ -312,15 +327,23 @@ fn main() -> Result<(), errors::Error> {
                 unreachable!()
             };
 
-            println!("Unlocking current instance key...");
+            println!();
+            println!("Copying from:");
+            println!("{source:?}");
+            println!("to:");
+            println!("{dest:?}");
+            println!();
+
             let (source_key, dest_key);
             if source_is_remote {
+                println!("Unlocking current instance key (at {dest:?})...");
                 dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
-                println!("Unlocking current instance key...");
+                println!("Unlocking current instance key (at {source:?})...");
                 source_key = key::unlock_key(&source.join(KEY_NAME))?;
             } else {
+                println!("Unlocking current instance key (at {source:?})...");
                 source_key = key::unlock_key(&source.join(KEY_NAME))?;
-                println!("Unlocking current instance key...");
+                println!("Unlocking current instance key (at {dest:?})...");
                 dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
             };
 
@@ -360,10 +383,19 @@ fn main() -> Result<(), errors::Error> {
                     }
                 }
             };
-            println!("Copying passwords...");
-            copy_dir(PASSWORD_DIR);
-            println!("Copying regular files...");
-            copy_dir(FILES_DIR);
+            if *passwords || !files {
+                println!("Copying passwords...");
+                copy_dir(PASSWORD_DIR);
+            } else {
+                println!("Skipped passwords");
+            }
+
+            if *files || !passwords {
+                println!("Copying regular files...");
+                copy_dir(FILES_DIR);
+            } else {
+                println!("Skipped regular files");
+            }
 
             Ok(())
         }
