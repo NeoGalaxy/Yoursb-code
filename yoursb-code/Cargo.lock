@@ -310,13 +310,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embedded-yoursb-code"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "error-code"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

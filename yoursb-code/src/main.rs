@@ -12,7 +12,6 @@ pub mod key;
 pub mod passwords;
 pub mod project;
 
-use clap::{Args, Subcommand};
 use passwords::CharsDist;
 use project::{find_project, FilePos, ProjectPath, KEY_NAME};
 use std::{
@@ -23,6 +22,7 @@ use std::{
 use walkdir::WalkDir;
 
 use clap::Parser;
+use clap::{Args, Subcommand};
 
 use crate::{
     crypto::{decrypt, encrypt},
