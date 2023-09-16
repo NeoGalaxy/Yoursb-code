@@ -1,12 +1,15 @@
 //! Module that manages passwords
 
+use std::fmt::Display;
 use std::fs;
 use std::fs::read_dir;
 use std::io::stdout;
 use std::io::Write;
 use std::matches;
+use std::ops::RangeInclusive;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chacha20poly1305::aead::OsRng;
 
@@ -57,6 +60,59 @@ pub struct Password {
     pub data: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CharsDist(Vec<(char, char)>);
+
+#[derive(Clone, Debug)]
+pub struct InvalidSyntax {
+    pos: usize,
+}
+
+impl Display for InvalidSyntax {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Invalid syntax at index {}", self.pos))
+    }
+}
+
+impl std::error::Error for InvalidSyntax {}
+
+impl FromStr for CharsDist {
+    type Err = InvalidSyntax;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut chars = s.chars().enumerate().peekable();
+        let mut res = vec![];
+        while let Some((_, c)) = chars.next() {
+            if c == ' ' {
+                continue;
+            }
+
+            let start = c;
+            if let Some((_, '.')) = chars.peek() {
+                chars.next().unwrap();
+                if let Some((i, '.')) = chars.peek().copied() {
+                    let end = chars
+                        .nth(1)
+                        .and_then(|(_, c)| if c == ' ' { None } else { Some(c) })
+                        .ok_or(InvalidSyntax { pos: i })?;
+                    if start > end {
+                        return Err(InvalidSyntax { pos: i });
+                    }
+                    res.push((start, end));
+                    continue;
+                }
+
+                res.push((start, start));
+                res.push(('.', '.'));
+                continue;
+            }
+
+            res.push((start, start));
+        }
+
+        Ok(Self(res))
+    }
+}
+
 /// Run the password manager
 ///
 /// TODO: make functions with each fonctionnality
@@ -78,17 +134,21 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
             data,
             prompt,
             len,
+            allowed_chars,
+            no_copy,
         } => {
             let id = pass_dir.join(identifier);
+            let sections = &allowed_chars.0;
 
             if id.exists() {
                 return Err(PasswordError::IdAlreadyUsed(identifier.clone()).into());
             }
 
-            let sections = ['a'..='z', 'A'..='Z', '!'..='@'];
+            // let sections = ['a'..='z', 'A'..='Z', '!'..='@'];
+
             let sections_len = sections
                 .iter()
-                .fold(0, |acc, s| acc + 1 + *s.end() as u32 - *s.start() as u32);
+                .fold(0, |acc, (start, end)| acc + 1 + *end as u32 - *start as u32);
 
             let pass = if *prompt {
                 pass_input("Enter the password to save", None)?
@@ -99,11 +159,12 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                     .take(*len as usize)
                     .map(|mut i| {
                         let mut j = 0;
-                        while i > 1 + *sections[j].end() as u32 - *sections[j].start() as u32 {
-                            i -= 1 + *sections[j].end() as u32 - *sections[j].start() as u32;
+                        while i > sections[j].1 as u32 - sections[j].0 as u32 {
+                            i -= 1 + sections[j].1 as u32 - sections[j].0 as u32;
                             j += 1;
                         }
-                        sections[j].clone().nth(i as usize).unwrap()
+                        let s = sections[j];
+                        RangeInclusive::new(s.0, s.1).nth(i as usize).unwrap()
                     })
                     .collect()
             };
@@ -125,6 +186,16 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
                 &key::unlock_key(&proj_dir.join(KEY_NAME))?.into(),
             )?;
             println!("Password saved");
+
+            if !*prompt && !no_copy {
+                let res =
+                    arboard::Clipboard::new().and_then(|mut c| c.set_text(&full_data.password));
+                if let Err(err) = res {
+                    println!("Unable to copy password to Clipboard: {err}");
+                } else {
+                    println!("== Password copied to Clipboard ==");
+                }
+            }
             Ok(())
         }
         Action::Get { identifier } => {

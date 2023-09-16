@@ -13,6 +13,7 @@ pub mod passwords;
 pub mod project;
 
 use clap::{Args, Subcommand};
+use passwords::CharsDist;
 use project::{find_project, FilePos, ProjectPath, KEY_NAME};
 use std::{
     fs::{self, create_dir_all, remove_dir_all},
@@ -62,7 +63,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
-    Init {},
+    Init,
+
+    /// Indicates where is the current instance, and where one would be attempted to be
+    /// created with `init` command. Takes in account the `-i`/`--instance` option.
+    /// Check `YourSBCode -h` for more details.
+    /// Aliases: `loc`, `whereis`
+    #[clap(aliases = &["loc", "whereis"])]
+    Locate,
 
     /// Deletes the YourSBCode instance designated by --instance. Alias: `del`
     #[clap(aliases = &["del"])]
@@ -187,8 +195,20 @@ pub enum Action {
         prompt: bool,
 
         /// Without --prompt, indicates the length of the generated password
-        #[arg(short, long, default_value = "15")]
+        #[arg(short, long, default_value = "20")]
         len: u16,
+
+        /// The allowed characters in the password when it's randomly generated.
+        /// The syntax for ranges is `s..e` where `s` is the start and `e` is
+        /// the end. Spaces are allowed anywhere except in a range and will not
+        /// be in the password.
+        #[arg(short, long, default_value = "a..z A..Z !#$%&'*+,-./:;<>=?@^_`|~")]
+        allowed_chars: CharsDist,
+
+        /// If the password is randombly generated, YourSBCode will by default
+        /// copy it into your clipboard. To prevent this behaviour, use this option.
+        #[arg(long)]
+        no_copy: bool,
     },
     /// Queries for a password, alias: `g`
     #[clap(aliases = &["g"])]
@@ -196,7 +216,8 @@ pub enum Action {
         /// The password to find
         identifier: String,
     },
-    /// List all password ids, alias: `ls`
+    /// List all password ids, aliases: `l`, `ls`
+    #[clap(aliases = &["l", "ls"])]
     List,
     /// Delete a password, alias: `del`
     #[clap(aliases = &["del"])]
@@ -210,7 +231,7 @@ fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     match &args.command {
-        Commands::Init {} => {
+        Commands::Init => {
             let instance = args.instance.unwrap_or(ProjectPath::Global);
             match &instance {
                 ProjectPath::Local(path) => {
@@ -230,6 +251,25 @@ fn main() -> Result<(), errors::Error> {
             }
 
             key::new_key(&keypath)
+        }
+
+        Commands::Locate => {
+            let instance_path = args
+                .instance
+                .clone()
+                .map(|p| p.find())
+                .unwrap_or_else(find_project);
+
+            let new_instance_path = args.instance.unwrap_or(ProjectPath::Global).get_path()?;
+
+            match instance_path {
+                Ok(path) => println!("The current instance is located at {path:?}"),
+                Err(e) => println!("No current instance has been found: {e:?}"),
+            }
+
+            println!("The attempt of instance creation would be at {new_instance_path:?}");
+
+            Ok(())
         }
 
         Commands::Delete { force } => {
