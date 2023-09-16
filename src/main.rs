@@ -18,7 +18,7 @@ use project::{find_project, FilePos, ProjectPath, KEY_NAME};
 use std::{
     fs::{self, create_dir_all, remove_dir_all},
     io::{stdin, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
@@ -27,6 +27,7 @@ use clap::Parser;
 use crate::{
     crypto::{decrypt, encrypt},
     errors::YoursbError,
+    key::ask_passphase,
     passwords::PASSWORD_DIR,
     project::FILES_DIR,
 };
@@ -151,6 +152,12 @@ pub enum Commands {
         /// copies both.
         #[arg(short, long)]
         files: bool,
+
+        /// Be default, if the passphrase for the current instance works for the remote one,
+        /// YourSBCode does not prompt for the password for a second time. This option prevents
+        /// this behaviour.
+        #[arg(long)]
+        no_reuse_passphrase: bool,
     },
 }
 
@@ -349,6 +356,7 @@ fn main() -> Result<(), errors::Error> {
             into,
             passwords,
             files,
+            no_reuse_passphrase,
         } => {
             println!("Finding instances...");
 
@@ -375,19 +383,46 @@ fn main() -> Result<(), errors::Error> {
             println!();
 
             let (source_key, dest_key);
+
+            let get_keys = |current: &Path, remote: &Path| -> Result<_, errors::Error> {
+                println!("Unlocking current instance key (at {current:?})...");
+                let passphrase = ask_passphase()?;
+                let current_key = key::unlock_key_with(&current.join(KEY_NAME), &passphrase)?;
+                println!("Passphrase valid.");
+
+                println!("Unlocking remote instance key (at {remote:?})...");
+                let keypath = &remote.join(KEY_NAME);
+                let res = if !no_reuse_passphrase {
+                    key::unlock_key_with(keypath, &passphrase).ok()
+                } else {
+                    None
+                };
+                let remote_key = match res {
+                    Some(k) => {
+                        println!("Passphrase valid.");
+                        k
+                    }
+                    None => key::unlock_key(keypath)?,
+                };
+                Ok((current_key, remote_key))
+            };
             if source_is_remote {
-                println!("Unlocking current instance key (at {dest:?})...");
-                dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
-                println!("Unlocking current instance key (at {source:?})...");
-                source_key = key::unlock_key(&source.join(KEY_NAME))?;
+                (dest_key, source_key) = get_keys(&dest, &source)?;
             } else {
-                println!("Unlocking current instance key (at {source:?})...");
-                source_key = key::unlock_key(&source.join(KEY_NAME))?;
-                println!("Unlocking current instance key (at {dest:?})...");
-                dest_key = key::unlock_key(&dest.join(KEY_NAME))?;
+                (source_key, dest_key) = get_keys(&source, &dest)?;
             };
 
             let copy_dir = |subdir| {
+                if !source.join(subdir).exists() {
+                    println!("Nothing in {subdir}.");
+                    return;
+                };
+                if !dest.join(subdir).exists() {
+                    if let Err(e) = create_dir_all(dest.join(subdir)) {
+                        eprintln!("ERROR: {e}");
+                    }
+                    return;
+                }
                 for entry in WalkDir::new(&source.join(subdir)) {
                     let entry: PathBuf = match entry {
                         Ok(e) => e.into_path(),
@@ -396,6 +431,16 @@ fn main() -> Result<(), errors::Error> {
                             continue;
                         }
                     };
+
+                    if entry.is_dir() {
+                        eprintln!(
+                            "- Entering {:?}",
+                            entry
+                                .strip_prefix(source.clone())
+                                .expect("Internal error: entry isn't in source;")
+                        );
+                        continue;
+                    }
 
                     if !entry.is_file() {
                         eprintln!("ERROR: entry {entry:?} is neither a directory nor a file");
@@ -416,13 +461,21 @@ fn main() -> Result<(), errors::Error> {
                             .expect("Internal error: entry isn't in source;"),
                     );
                     match encrypt(decrypted.into_iter(), &dest_file, (&dest_key).into()) {
-                        Ok(d) => d,
+                        Ok(()) => {
+                            eprintln!(
+                                "- Copied {:?}",
+                                entry
+                                    .strip_prefix(source.clone())
+                                    .expect("Internal error: entry isn't in source;")
+                            );
+                        }
                         Err(err) => {
                             eprintln!("DECRYPTING ERROR: {err:?}");
                         }
                     }
                 }
             };
+            println!();
             if *passwords || !files {
                 println!("Copying passwords...");
                 copy_dir(PASSWORD_DIR);
@@ -430,6 +483,7 @@ fn main() -> Result<(), errors::Error> {
                 println!("Skipped passwords");
             }
 
+            println!();
             if *files || !passwords {
                 println!("Copying regular files...");
                 copy_dir(FILES_DIR);

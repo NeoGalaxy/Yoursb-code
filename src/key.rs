@@ -20,6 +20,29 @@ use crate::{
     errors::{self, Error::ConsoleError},
 };
 
+pub fn ask_passphase() -> Result<[u8; 32], errors::Error> {
+    let mut password = loop {
+        print!("Enter the passphrase: ");
+        stdout().flush().map_err(ConsoleError)?;
+        let pass = rpassword::read_password().map_err(ConsoleError)?;
+        println!();
+        if pass.len() > 32 {
+            println!("Too long passphrase, max is 32 characters.");
+            println!();
+        } else {
+            break pass.into_bytes();
+        }
+    };
+
+    while password.len() < 32 {
+        password.push(0)
+    }
+
+    Ok(password
+        .try_into()
+        .expect("Padded passphrase doesn't do 32 bytes"))
+}
+
 /// Create a key and encrypt it with a passphrase
 pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
     println!("Creating key...\n");
@@ -60,43 +83,26 @@ pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
 
 /// Decrypts an encrypted key using a passphrase
 pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
-    println!("Opening key file...\n");
+    let key = unlock_key_with(keypath, &ask_passphase()?)?;
+    println!("Passphrase valid.");
 
+    Ok(key)
+}
+
+/// Decrypts an encrypted key using a passphrase
+pub fn unlock_key_with(keypath: &Path, passphrase: &[u8; 32]) -> Result<[u8; 32], errors::Error> {
     let mut keyfile = _try!(File::open(keypath), [keypath.to_owned()]);
-
-    let mut password = loop {
-        print!("Enter the passphrase: ");
-        stdout().flush().map_err(ConsoleError)?;
-        let pass = rpassword::read_password().map_err(ConsoleError)?;
-        println!();
-        if pass.len() > 32 {
-            println!("Too long passphrase, max is 32 characters.");
-            println!();
-        } else {
-            break pass.into_bytes();
-        }
-    };
-
-    while password.len() < 32 {
-        password.push(0)
-    }
-
-    let padded_password: [u8; 32] = password
-        .try_into()
-        .expect("Padded passphrase doesn't do 32 bytes");
 
     let mut nonce = [0; 12];
     let mut cipherkey = Vec::new();
     _try!(keyfile.read_exact(&mut nonce), [keypath.to_owned()]);
     _try!(keyfile.read_to_end(&mut cipherkey), [keypath.to_owned()]);
 
-    let cipher = ChaCha20Poly1305::new((&padded_password).into());
+    let cipher = ChaCha20Poly1305::new((passphrase).into());
 
     let key = cipher
         .decrypt((&nonce).into(), cipherkey.as_ref())
         .map_err(|_| InvalidPasswordError)?;
-
-    println!("Passphrase valid.");
 
     Ok(key.try_into().expect("Encrypted key is not the right size"))
 }
