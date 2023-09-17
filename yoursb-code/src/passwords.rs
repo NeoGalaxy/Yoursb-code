@@ -23,6 +23,7 @@ use crate::errors::Error::ConsoleError;
 use crate::errors::YoursbError;
 use crate::key;
 use crate::project::find_project;
+use crate::project::FILES_DIR;
 use crate::project::KEY_NAME;
 use crate::Action;
 use crate::Cli;
@@ -57,6 +58,7 @@ impl From<arboard::Error> for errors::Error {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Password {
     pub password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<String>,
 }
 
@@ -123,10 +125,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
         .map(|p| p.find())
         .unwrap_or_else(find_project)?;
 
-    let pass_dir = proj_dir
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(PASSWORD_DIR);
+    let pass_dir = proj_dir.join(PASSWORD_DIR);
 
     match action {
         Action::Create {

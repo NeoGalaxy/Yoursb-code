@@ -16,13 +16,17 @@ use core::{
     ffi::CStr,
     mem::size_of,
     ops::{Deref, DerefMut},
-    slice,
+    slice, todo,
 };
 
 use crypto::decrypt;
 use key::unlock_key;
 use libc::{exit, fdopen, fopen, fprintf, free, malloc, memcpy, printf, realloc, STDOUT_FILENO};
 use project::find_loc;
+use serde::{
+    de::{self, MapAccess, SeqAccess, Visitor},
+    Deserialize,
+};
 
 use crate::utils::println;
 
@@ -171,6 +175,95 @@ impl<T> Drop for Heaped<T> {
     }
 }
 
+/// A password with optionnal data
+pub struct Password {
+    pub password: Heaped<u8>,
+    pub data: Option<Heaped<u8>>,
+}
+
+impl<'de> Deserialize<'de> for Password {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Field(Heaped<u8>);
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserializer.deserialize_str(FieldVisit)
+            }
+        }
+
+        struct FieldVisit;
+
+        impl<'de> Visitor<'de> for FieldVisit {
+            type Value = Field;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("struct Password")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let res = Heaped::<u8>::malloc(v.len());
+                unsafe { memcpy(res.ptr() as _, v.as_ptr() as _, v.len()) };
+                Ok(Field(res))
+            }
+        }
+
+        struct PswVisit;
+
+        impl<'de> Visitor<'de> for PswVisit {
+            type Value = Password;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("struct Password")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Password, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut password: Option<Field> = None;
+                let mut data: Option<Field> = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "password" => {
+                            if password.is_some() {
+                                return Err(de::Error::duplicate_field("password"));
+                            }
+                            password = Some(map.next_value()?)
+                        }
+                        "data" => {
+                            if data.is_some() {
+                                return Err(de::Error::duplicate_field("data"));
+                            }
+                            data = Some(map.next_value()?)
+                        }
+                        k => {
+                            return Err(serde::de::Error::unknown_field(k, KEYS));
+                        }
+                    }
+                }
+                let password = password.ok_or_else(|| de::Error::missing_field("password"))?;
+                Ok(Password {
+                    password: password.0,
+                    data: data.map(|v| v.0),
+                })
+            }
+        }
+
+        const KEYS: &[&str] = &["password", "data"];
+
+        deserializer.deserialize_struct("Password", KEYS, PswVisit)
+    }
+}
+
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
@@ -237,7 +330,75 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
             }
         }
     } else {
-        unsafe { "Passwords not yes supported".finish() };
+        unsafe { println!("Parsing password...") };
+        let mut body: Heaped<u8> = Heaped::malloc(0);
+        for bloc in content {
+            let bloc = bloc.unwrap();
+            let start = unsafe { body.offset(body.size as isize) };
+            unsafe { body.realloc(body.size + bloc.len()) }.unwrap();
+            unsafe { memcpy(start as _, bloc.as_ptr() as _, bloc.len()) };
+        }
+        let (password, _): (Password, _) = match serde_json_core::from_slice(unsafe {
+            if body.is_null() {
+                b""
+            } else {
+                slice::from_raw_parts(body.ptr(), body.size)
+            }
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                let str_container;
+                let msg = match e {
+                    serde_json_core::de::Error::EofWhileParsingList => "Eof while parsing list",
+                    serde_json_core::de::Error::EofWhileParsingObject => "Eof while parsing object",
+                    serde_json_core::de::Error::EofWhileParsingString => "Eof while parsing string",
+                    serde_json_core::de::Error::EofWhileParsingNumber => "Eof while parsing number",
+                    serde_json_core::de::Error::EofWhileParsingValue => "Eof while parsing value",
+                    serde_json_core::de::Error::ExpectedColon => "Expected colon",
+                    serde_json_core::de::Error::ExpectedListCommaOrEnd => {
+                        "Expected list comma or end"
+                    }
+                    serde_json_core::de::Error::ExpectedObjectCommaOrEnd => {
+                        "Expected object comma or end"
+                    }
+                    serde_json_core::de::Error::ExpectedSomeIdent => "Expected some ident",
+                    serde_json_core::de::Error::ExpectedSomeValue => "Expected some value",
+                    serde_json_core::de::Error::InvalidNumber => "Invalid number",
+                    serde_json_core::de::Error::InvalidType => "Invalid type",
+                    serde_json_core::de::Error::InvalidUnicodeCodePoint => {
+                        "Invalid unicode code point"
+                    }
+                    serde_json_core::de::Error::KeyMustBeAString => "Key must be a string",
+                    serde_json_core::de::Error::TrailingCharacters => "Trailing characters",
+                    serde_json_core::de::Error::TrailingComma => "Trailing comma",
+                    serde_json_core::de::Error::CustomError => "Custom error",
+                    serde_json_core::de::Error::CustomErrorWithMessage(m) => {
+                        str_container = m.clone();
+                        &str_container
+                    }
+                    _ => "Unknown parsing error",
+                };
+
+                unsafe {
+                    println!("---------   Content   ---------");
+                    println!("%.*s", body.size, body.ptr());
+                    println!("-------------------------------");
+
+                    msg.finish()
+                };
+            }
+        };
+
+        unsafe {
+            println!("== Password copied to Clipboard ==");
+
+            if let Some(data) = password.data {
+                println!("---------   associated data   ---------");
+                println!("(ptr: %d)", data.ptr());
+                println!("%.*s", data.size, data.ptr());
+                println!("---------------------------------------");
+            }
+        };
     }
     0
 }
