@@ -80,8 +80,20 @@ impl Finish for Heaped<u8> {
     }
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 unsafe fn usage(cmd: *const i8) {
-    libc::printf("YourSBCode-mini, the minimal encrypted file utility\n\0".as_ptr() as *const _);
+    libc::printf(
+        "YourSBCode_tiny v%.*s by Naeio, the minimal encrypted file utility\n\0".as_ptr()
+            as *const _,
+        VERSION.len(),
+        VERSION.as_ptr(),
+    );
+    libc::printf(
+        "Exported from YourSBCode v%.*s\n\0".as_ptr() as *const _,
+        VERSION.len(),
+        VERSION.as_ptr(),
+    );
     libc::printf("\n\0".as_ptr() as *const _);
     libc::printf("It allows to decrypt a password/encrypted file from\n\0".as_ptr() as *const _);
     libc::printf("the current instance. \n\0".as_ptr() as *const _);
@@ -90,7 +102,8 @@ unsafe fn usage(cmd: *const i8) {
     );
     libc::printf("\n\0".as_ptr() as *const _);
     libc::printf(
-        "USAGE: %s [-h|--help] [<KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr() as *const _,
+        "USAGE: %s [-h|--help] [-v|--version] [<KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr()
+            as *const _,
         cmd,
     );
     libc::printf("\n\0".as_ptr() as *const _);
@@ -104,6 +117,18 @@ unsafe fn usage(cmd: *const i8) {
         "  <OUTPUT> \tWhen decrypting a file, write result in said\n\0".as_ptr() as *const _,
     );
     libc::printf("           \tfile instead of stdout\n\0".as_ptr() as *const _);
+}
+
+fn version() {
+    unsafe {
+        println!(
+            "YourSBCode_tiny v%.*s (from YourSBCode v%.*s)",
+            VERSION.len(),
+            VERSION.as_ptr(),
+            VERSION.len(),
+            VERSION.as_ptr()
+        );
+    }
 }
 
 pub struct Heaped<T> {
@@ -272,9 +297,19 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     if args
         .iter()
         .map(|a| unsafe { CStr::from_ptr(*a) })
-        .any(|a| a.to_str() == Ok("-h") || a.to_str() == Ok("--help"))
+        .map(|a| a.to_str())
+        .any(|a| a == Ok("-h") || a == Ok("--help"))
     {
         unsafe { usage(args[0]) };
+        return 0;
+    }
+    if args
+        .iter()
+        .map(|a| unsafe { CStr::from_ptr(*a) })
+        .map(|a| a.to_str())
+        .any(|a| a == Ok("-v") || a == Ok("--version"))
+    {
+        version();
         return 0;
     }
 
