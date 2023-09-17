@@ -7,15 +7,17 @@
 
 // extern crate libc;
 
+pub mod c_deps;
 pub mod crypto;
 pub mod key;
 pub mod project;
 pub mod utils;
 
 use core::{
-    ffi::CStr,
+    ffi::{c_int, CStr},
     mem::size_of,
     ops::{Deref, DerefMut},
+    ptr::{null, null_mut},
     slice, todo,
 };
 
@@ -28,7 +30,13 @@ use serde::{
     Deserialize,
 };
 
-use crate::utils::println;
+use c_deps::{clipboard_free, clipboard_mode_LCB_CLIPBOARD, clipboard_new, clipboard_set_text_ex};
+use utils::println;
+
+use crate::c_deps::{
+    clipboard_clear, clipboard_has_ownership, clipboard_mode_LCB_PRIMARY,
+    clipboard_mode_LCB_SECONDARY, clipboard_set_text,
+};
 
 trait Finish {
     unsafe fn finish(&self) -> !;
@@ -425,7 +433,19 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         };
 
         unsafe {
-            println!("== Password copied to Clipboard ==");
+            let clipboad = clipboard_new(null_mut() as _);
+            if clipboad.is_null() {
+                println!("Internal error, can't copy to clipboad");
+            } else {
+                let mut pass = password.password;
+                pass.realloc(pass.size + 1).unwrap();
+                *pass.offset(pass.size as isize - 2) = b'\0';
+                println!("pass: %s", *pass);
+                clipboard_set_text(clipboad, pass.ptr() as _);
+                println!("pass: %s", *pass);
+                clipboard_free(clipboad);
+                println!("== Password copied to Clipboard ==");
+            }
 
             if let Some(data) = password.data {
                 println!("---------   associated data   ---------");
