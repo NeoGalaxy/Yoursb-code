@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chacha20poly1305 = { version = "0.10", default-features = false, features = ["stream"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["stream", "heapless"] }
 libc = { version = "0.2", default-features = false }
 errno = {version = "0.3.3", default-features = false}
 

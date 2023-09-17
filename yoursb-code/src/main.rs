@@ -1,6 +1,6 @@
 //! YourSB Code, an encrypted files manager
 //!
-//! This is an executable able to encrypt files using the ChaCha20Poly1305 algorithm,
+//! This is an executable able to encrypt files using the XChaCha20Poly1305 algorithm,
 //! secured by a password.
 //!
 //! Note: the password is not directly used to encrypt everything, a random key is used
@@ -25,7 +25,7 @@ use clap::Parser;
 use clap::{Args, Subcommand};
 
 use crate::{
-    crypto::{decrypt, encrypt},
+    crypto::{decrypt_from, encrypt_to},
     errors::YoursbError,
     key::ask_passphase,
     passwords::PASSWORD_DIR,
@@ -37,7 +37,7 @@ use crate::{
 #[command(propagate_version = true)]
 /// YourSB Code, an encrypted files manager.
 ///
-/// This is an executable able to encrypt files using the ChaCha20Poly1305
+/// This is an executable able to encrypt files using the XChaCha20Poly1305
 /// algorithm, secured by a random secret key. The key is itself encrypted
 /// using a passphrase chosen by the user.
 pub struct Cli {
@@ -315,7 +315,7 @@ fn main() -> Result<(), errors::Error> {
 
             let output = output.to_path(&instance_path);
 
-            crypto::encrypt(bytes, &output, (&key).into())
+            crypto::encrypt_to(bytes, &output, (&key).into())
         }
 
         Commands::Decrypt { input, output } => {
@@ -330,7 +330,7 @@ fn main() -> Result<(), errors::Error> {
 
             let input = input.to_path(&instance_path);
 
-            let decrypted = crypto::decrypt(&input, (&key).into())?;
+            let decrypted = crypto::decrypt_from(&input, (&key).into())?;
             _try!(fs::write(output, decrypted), [output.to_owned()]);
             Ok(())
         }
@@ -447,7 +447,7 @@ fn main() -> Result<(), errors::Error> {
                         continue;
                     }
 
-                    let decrypted = match decrypt(&entry, (&source_key).into()) {
+                    let decrypted = match decrypt_from(&entry, (&source_key).into()) {
                         Ok(d) => d,
                         Err(err) => {
                             eprintln!("DECRYPTING ERROR: {err:?}");
@@ -460,7 +460,7 @@ fn main() -> Result<(), errors::Error> {
                             .strip_prefix(source.clone())
                             .expect("Internal error: entry isn't in source;"),
                     );
-                    match encrypt(decrypted.into_iter(), &dest_file, (&dest_key).into()) {
+                    match encrypt_to(decrypted.into_iter(), &dest_file, (&dest_key).into()) {
                         Ok(()) => {
                             eprintln!(
                                 "- Copied {:?}",

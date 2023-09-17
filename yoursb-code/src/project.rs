@@ -199,10 +199,10 @@ pub fn find_files(
 
     Ok(_try!(
         read_dir(root.join(FILES_DIR).join(dir.clone())),
-        [dir.to_owned()]
+        [Path::new("files/").join(&dir)]
     )
     .map(move |subdir| {
-        let subpath = _try!(subdir, [(dir).to_owned()]);
+        let subpath = _try!(subdir, [Path::new("files/").join(&dir)]);
         Ok(subpath.file_name())
     })
     .filter(move |e| {
@@ -210,5 +210,5 @@ pub fn find_files(
             .map(|name| name.to_string_lossy().starts_with(&file_prefix))
             .unwrap_or(true)
     })
-    .map(move |e| e.map(|name| dir2.join(name))))
+    .map(move |e| e.map(|name| Path::new("files/").join(dir2.join(name)))))
 }

@@ -1,14 +1,16 @@
 //! Minimal YourSBCode implementation allowing to access elements in a local instance.
 //! It aims to be as small as possible.
 
-#![feature(core_panic)]
+#![feature(c_variadic)]
 #![no_std]
 #![no_main]
 
 // extern crate libc;
 
 pub mod crypto;
+pub mod key;
 pub mod project;
+pub mod utils;
 
 use core::{
     ffi::CStr,
@@ -17,8 +19,12 @@ use core::{
     slice,
 };
 
-use libc::{exit, free, malloc, realloc};
-use project::{find_loc, find_project};
+use crypto::decrypt;
+use key::unlock_key;
+use libc::{exit, fdopen, fopen, fprintf, free, malloc, memcpy, printf, realloc, STDOUT_FILENO};
+use project::find_loc;
+
+use crate::utils::println;
 
 trait Finish {
     unsafe fn finish(&self) -> !;
@@ -80,7 +86,7 @@ unsafe fn usage(cmd: *const i8) {
     );
     libc::printf("\n\0".as_ptr() as *const _);
     libc::printf(
-        "USAGE: %s [-h|--help] [<KIND> <IDENTIFIER>]\n\0".as_ptr() as *const _,
+        "USAGE: %s [-h|--help] [<KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr() as *const _,
         cmd,
     );
     libc::printf("\n\0".as_ptr() as *const _);
@@ -90,6 +96,10 @@ unsafe fn usage(cmd: *const i8) {
             as *const _,
     );
     libc::printf("  <IDENTIFIER> \tThe identifier of the data to decrypt\n\0".as_ptr() as *const _);
+    libc::printf(
+        "  <OUTPUT> \tWhen decrypting a file, write result in said\n\0".as_ptr() as *const _,
+    );
+    libc::printf("           \tfile instead of stdout\n\0".as_ptr() as *const _);
 }
 
 pub struct Heaped<T> {
@@ -120,13 +130,24 @@ impl<T> Heaped<T> {
     }
 
     unsafe fn realloc(&mut self, new_size: usize) -> Result<(), ()> {
-        let new_loc = realloc(self.content as _, new_size);
+        let new_loc = realloc(self.content as _, new_size * size_of::<T>());
         if new_loc.is_null() {
             Err(())
         } else {
             self.content = new_loc as _;
             self.size = new_size;
             Ok(())
+        }
+    }
+}
+
+impl<T: Clone> Heaped<T> {
+    unsafe fn dupplicate(&self) -> Self {
+        let new_mem = malloc(self.size * size_of::<T>());
+        memcpy(new_mem, self.ptr() as *const _, self.size * size_of::<T>());
+        Heaped {
+            content: new_mem as *mut _,
+            size: self.size,
         }
     }
 }
@@ -179,10 +200,45 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         return 0;
     }
 
+    if args.len() > 4 {
+        unsafe { "Too many arguments.".finish() };
+    }
+
+    let output = if args.len() == 4 { Some(args[3]) } else { None };
+
     let identifier = unsafe { CStr::from_ptr(args[2]) };
 
-    let path = find_loc(is_file, identifier);
+    let (path, keypath) = find_loc(is_file, identifier);
+    unsafe { println!("Unlocking key...") };
+    let key = unlock_key(unsafe { CStr::from_ptr(*keypath) });
+    if !is_file || output.is_some() {
+        unsafe { println!("Key valid.") };
+        unsafe { println!() };
+        unsafe { println!("Opening file...") };
+    }
 
+    let content = decrypt(unsafe { CStr::from_ptr(*path) }, &key.into());
+    if is_file {
+        let output = if let Some(f) = output {
+            let res = unsafe { fopen(f, "w".as_ptr() as _) };
+            if res.is_null() {
+                unsafe { "Can't open input file".finish() };
+            } else {
+                res
+            }
+        } else {
+            unsafe { fdopen(STDOUT_FILENO, "w".as_ptr() as _) }
+        };
+        for bloc in content {
+            if let Some(v) = bloc {
+                unsafe { fprintf(output, "%.*s\0".as_ptr() as _, v.len(), v.as_ptr()) };
+            } else {
+                unsafe { "Invalid content".finish() }
+            }
+        }
+    } else {
+        unsafe { "Passwords not yes supported".finish() };
+    }
     0
 }
 

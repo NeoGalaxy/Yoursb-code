@@ -176,7 +176,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
 
             println!("Password will be saved as {:?}", identifier);
 
-            crypto::encrypt(
+            crypto::encrypt_to(
                 serde_json::to_string(&full_data)
                     .unwrap()
                     .as_bytes()
@@ -201,7 +201,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
         Action::Get { identifier } => {
             let id_path = pass_dir.join(identifier);
             let full_data =
-                crypto::decrypt(&id_path, &key::unlock_key(&proj_dir.join(KEY_NAME))?.into())?;
+                crypto::decrypt_from(&id_path, &key::unlock_key(&proj_dir.join(KEY_NAME))?.into())?;
 
             let full_data: Password = serde_json::from_str(
                 std::str::from_utf8(&full_data)
@@ -226,8 +226,8 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
         }
         Action::List => {
             println!("Listing all encrypted data in the password collection:");
-            for pass in _try!(read_dir(&pass_dir), [pass_dir]) {
-                let pass = _try!(pass, [pass_dir]);
+            for pass in _try!(read_dir(&pass_dir), [Path::new("passwords/").into()]) {
+                let pass = _try!(pass, [Path::new("passwords/").into()]);
                 println!("- {}", pass.file_name().to_string_lossy());
             }
             Ok(())

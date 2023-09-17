@@ -1,19 +1,17 @@
 //! This module is aimed towards manging the keys, encrypting and decrypting them.
 
 use crate::{
-    errors::{Error::InvalidPasswordError, YoursbError},
+    crypto::{decrypt_from, encrypt},
+    errors::YoursbError,
     passwords::pass_input,
 };
 use std::{
     fs::File,
-    io::{stdout, Read, Write},
+    io::{stdout, Write},
     path::Path,
 };
 
-use chacha20poly1305::{
-    aead::{Aead, OsRng},
-    AeadCore, ChaCha20Poly1305, KeyInit,
-};
+use chacha20poly1305::{aead::OsRng, KeyInit, XChaCha20Poly1305};
 
 use crate::{
     _try,
@@ -65,18 +63,17 @@ pub fn new_key(keypath: &Path) -> Result<(), errors::Error> {
     println!();
 
     println!("Generating a key...");
-    let key = ChaCha20Poly1305::generate_key(OsRng);
+    let key = XChaCha20Poly1305::generate_key(OsRng);
     let key: &[u8] = &key;
 
     println!();
     println!("Encrypting key with password...");
 
-    let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-    let cipher = ChaCha20Poly1305::new((&padded_password).into());
-    let cipherkey = cipher.encrypt(&nonce, key).unwrap();
+    let res: Vec<_> =
+        encrypt(key.iter().copied(), (&padded_password).into()).collect::<Result<_, _>>()?;
 
-    _try!(keyfile.write_all(&nonce), [keypath.to_owned()]);
-    _try!(keyfile.write_all(&cipherkey), [keypath.to_owned()]);
+    _try!(keyfile.write_all(&res), [keypath.to_owned()]);
+
     println!("Done.");
     Ok(())
 }
@@ -91,18 +88,7 @@ pub fn unlock_key(keypath: &Path) -> Result<[u8; 32], errors::Error> {
 
 /// Decrypts an encrypted key using a passphrase
 pub fn unlock_key_with(keypath: &Path, passphrase: &[u8; 32]) -> Result<[u8; 32], errors::Error> {
-    let mut keyfile = _try!(File::open(keypath), [keypath.to_owned()]);
-
-    let mut nonce = [0; 12];
-    let mut cipherkey = Vec::new();
-    _try!(keyfile.read_exact(&mut nonce), [keypath.to_owned()]);
-    _try!(keyfile.read_to_end(&mut cipherkey), [keypath.to_owned()]);
-
-    let cipher = ChaCha20Poly1305::new((passphrase).into());
-
-    let key = cipher
-        .decrypt((&nonce).into(), cipherkey.as_ref())
-        .map_err(|_| InvalidPasswordError)?;
+    let key = decrypt_from(keypath, passphrase.into())?;
 
     Ok(key.try_into().expect("Encrypted key is not the right size"))
 }

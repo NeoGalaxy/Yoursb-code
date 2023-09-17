@@ -1,10 +1,10 @@
 //! Module relative to anything helping finding a project
 
-use core::{ffi::CStr, ptr::null_mut, todo};
+use core::{ffi::CStr, ptr::null_mut};
 
-use libc::{closedir, getcwd, opendir, printf, snprintf, strlen, ENOENT};
+use libc::{closedir, getcwd, opendir, snprintf, strlen, ENOENT};
 
-use crate::{Finish, Heaped};
+use crate::{utils::println, Finish, Heaped};
 
 /// The name of the directory in which everything is stored when in a local dir
 pub const LOCAL_PROJECT_SUBDIR: &str = ".yoursbcode";
@@ -95,9 +95,13 @@ pub fn find_project() -> Heaped<i8> {
 ///
 /// If a project is found, returns `Ok(path)` with the path directing to the root dir of the
 /// project
-pub fn find_loc(is_file: bool, identifier: &CStr) -> Heaped<i8> {
-    let mut file_path = find_project();
+pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
+    let project_path = find_project();
 
+    let mut file_path = unsafe { project_path.dupplicate() };
+    let mut key_path = project_path;
+
+    // file path
     let curr_dir_len = unsafe { strlen(*file_path) };
     let identifier_len = identifier.to_bytes().len();
 
@@ -122,5 +126,27 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> Heaped<i8> {
         unsafe { "INTERNAL ERROR: too small path size".finish() };
     }
 
-    file_path
+    // key path
+    let curr_dir_len = unsafe { strlen(*key_path) };
+
+    let new_len = curr_dir_len + KEY_NAME.len() + 1;
+    if new_len > key_path.size {
+        unsafe { key_path.realloc(new_len) }.expect("ERROR: not enough memory");
+    }
+
+    let printed_size = unsafe {
+        snprintf(
+            key_path.offset(curr_dir_len as _),
+            new_len - curr_dir_len,
+            "/%s\0".as_ptr() as _,
+            KEY_NAME.as_ptr(),
+        )
+    };
+
+    if printed_size as usize + 1 > new_len {
+        unsafe { "INTERNAL ERROR: too small path size".finish() };
+    }
+
+    unsafe { println!("Key pos: %s", *key_path) };
+    (file_path, key_path)
 }

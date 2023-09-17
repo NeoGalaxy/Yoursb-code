@@ -3,21 +3,19 @@
 use core::{ffi::CStr, mem::size_of};
 
 use chacha20poly1305::{
-    aead::{AeadInPlace, KeyInit},
-    ChaCha20Poly1305,
+    aead::{heapless::Vec, stream::DecryptorBE32},
+    XChaCha20Poly1305,
 };
 use libc::{fclose, fopen, fread, FILE};
 
-use crate::Finish;
+use crate::{utils::println, Finish};
 
 const BUFFER_LEN: usize = 500;
 const TAG_SIZE: usize = 16;
 
 pub struct FileDecrypter {
     file: *mut FILE,
-    cipher: ChaCha20Poly1305,
-    // nonces are of size 12 + \0
-    nonce: [u8; 12],
+    cipher: Option<DecryptorBE32<XChaCha20Poly1305>>,
 }
 
 impl Drop for FileDecrypter {
@@ -27,15 +25,16 @@ impl Drop for FileDecrypter {
 }
 
 impl Iterator for FileDecrypter {
-    type Item = [u8; BUFFER_LEN];
+    type Item = Option<Vec<u8, { BUFFER_LEN + TAG_SIZE }>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut in_buffer = [0; BUFFER_LEN + TAG_SIZE];
-        let mut out_buffer = [0; BUFFER_LEN];
+        let mut cipher = self.cipher.take()?; // Stop here if finished
+
+        let mut buffer: Vec<_, { BUFFER_LEN + TAG_SIZE }> = Vec::new();
 
         let size_read = unsafe {
             fread(
-                in_buffer.as_mut_ptr() as *mut _,
+                buffer.as_mut_ptr() as *mut _,
                 size_of::<u8>(),
                 BUFFER_LEN + TAG_SIZE,
                 self.file,
@@ -47,17 +46,22 @@ impl Iterator for FileDecrypter {
         }
 
         if size_read < TAG_SIZE {
-            unsafe { "ERROR: chunk has no tag".finish() };
+            panic!("ERROR: chunk is too small");
         }
 
-        let (text, tag) = in_buffer[0..size_read].split_at(size_read - TAG_SIZE);
+        unsafe { buffer.set_len(size_read) };
 
-        let tag: &[u8; TAG_SIZE] = tag.try_into().expect("fatal error");
-
-        self.cipher
-            .decrypt_in_place_detached((&self.nonce).into(), text, &mut out_buffer, tag.into())
-            .expect("ERROR: could not decrypt");
-        Some(out_buffer)
+        let res = if size_read == BUFFER_LEN + TAG_SIZE {
+            let tmp = cipher.decrypt_next_in_place(b"", &mut buffer);
+            self.cipher = Some(cipher);
+            tmp
+        } else {
+            cipher.decrypt_last_in_place(b"", &mut buffer)
+        };
+        match res {
+            Ok(()) => Some(Some(buffer)),
+            Err(_) => Some(None),
+        }
     }
 }
 
@@ -65,27 +69,30 @@ impl Iterator for FileDecrypter {
 pub fn decrypt(input_path: &CStr, key: &chacha20poly1305::Key) -> FileDecrypter {
     let encrypted_file = unsafe { fopen(input_path.as_ptr(), "r".as_ptr() as _) };
 
-    let cipher = ChaCha20Poly1305::new(key);
+    if encrypted_file.is_null() {
+        unsafe { "File does not exist".finish() };
+    }
 
-    // nonces are of size 12
-    let mut nonce = [0; 12];
+    // nonces are of size 24
+    let mut nonce = [0; 19];
 
     let nb_read = unsafe {
         fread(
             nonce.as_mut_ptr() as *mut _,
             size_of::<u8>(),
-            12,
+            19,
             encrypted_file,
         )
     };
 
-    if nb_read < 12 {
+    if nb_read < 19 {
         unsafe { "File too short: it was not encrypted by YourSBCode".finish() };
     };
 
+    let cipher = DecryptorBE32::<XChaCha20Poly1305>::new(key, &nonce.into());
+
     FileDecrypter {
         file: encrypted_file,
-        cipher,
-        nonce,
+        cipher: Some(cipher),
     }
 }
