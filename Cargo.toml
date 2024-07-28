@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "yoursb-code",
+    "embedded-yoursb-code",
+]
