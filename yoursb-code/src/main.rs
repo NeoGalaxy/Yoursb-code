@@ -10,10 +10,10 @@ pub mod crypto;
 pub mod errors;
 pub mod key;
 pub mod passwords;
-pub mod project;
+pub mod repo;
 
 use passwords::CharsDist;
-use project::{find_project, FilePos, ProjectPath, KEY_NAME};
+use repo::{find_repo, FilePos, RepoPath, KEY_NAME};
 use std::{
     fs::{self, create_dir_all, remove_dir_all},
     io::{stdin, Read},
@@ -29,7 +29,7 @@ use crate::{
     errors::YoursbError,
     key::ask_passphase,
     passwords::PASSWORD_DIR,
-    project::FILES_DIR,
+    repo::FILES_DIR,
 };
 
 #[derive(Parser)]
@@ -56,7 +56,7 @@ pub struct Cli {
     /// Defaults to "local" if there's a local instance, or "global" otherwise,
     /// except for command `init`
     #[arg(short, long)]
-    instance: Option<ProjectPath>,
+    instance: Option<RepoPath>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -134,14 +134,14 @@ pub enum Commands {
         ///
         /// Either "global", "local" or "local:<PATH>".
         #[arg(short, long)]
-        from: Option<ProjectPath>,
+        from: Option<RepoPath>,
 
         /// Location of the "remote instance". The command will then copy files from the
         /// "current instance" into this "remote instance".
         ///
         /// Either "global", "local" or "local:<PATH>".
         #[arg(short, long)]
-        into: Option<ProjectPath>,
+        into: Option<RepoPath>,
 
         /// If set, passwords will be copied. If neither `--passwords` nor `--files` is set,
         /// copies both.
@@ -239,18 +239,18 @@ fn main() -> Result<(), errors::Error> {
 
     match &args.command {
         Commands::Init => {
-            let instance = args.instance.unwrap_or(ProjectPath::Global);
+            let instance = args.instance.unwrap_or(RepoPath::Global);
             match &instance {
-                ProjectPath::Local(path) => {
+                RepoPath::Local(path) => {
                     println!("Creating YourSBCode instance in dir {path:?}")
                 }
-                ProjectPath::Global => println!("Creating global YourSBCode instance"),
+                RepoPath::Global => println!("Creating global YourSBCode instance"),
             }
             let instance_dir = instance.get_path()?;
 
             let keypath = instance_dir.join(KEY_NAME);
             if keypath.exists() {
-                return Err(errors::Error::ProjectAlreadyExists);
+                return Err(errors::Error::RepoAlreadyExists);
             }
 
             if let Some(p) = keypath.parent() {
@@ -265,9 +265,9 @@ fn main() -> Result<(), errors::Error> {
                 .instance
                 .clone()
                 .map(|p| p.find())
-                .unwrap_or_else(find_project);
+                .unwrap_or_else(find_repo);
 
-            let new_instance_path = args.instance.unwrap_or(ProjectPath::Global).get_path()?;
+            let new_instance_path = args.instance.unwrap_or(RepoPath::Global).get_path()?;
 
             match instance_path {
                 Ok(path) => println!("The current instance is located at {path:?}"),
@@ -280,10 +280,7 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Delete { force } => {
-            let instance_path = args
-                .instance
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
+            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
             if !force {
                 println!("This will delete all the content of directory {instance_path:?}.");
@@ -306,10 +303,7 @@ fn main() -> Result<(), errors::Error> {
             let input = _try!(fs::File::open(file), [file.to_owned()]);
             let bytes = input.bytes().map(|e| e.unwrap()); // TODO
 
-            let instance_path = args
-                .instance
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
+            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
             let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
 
@@ -321,10 +315,7 @@ fn main() -> Result<(), errors::Error> {
         Commands::Decrypt { input, output } => {
             let input: FilePos = (*input).clone().into();
 
-            let instance_path = args
-                .instance
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
+            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
             let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
 
@@ -336,12 +327,9 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Ls { prefix } => {
-            let instance_path = args
-                .instance
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
+            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
-            project::find_files(instance_path, prefix)?.for_each(|e| {
+            repo::find_files(instance_path, prefix)?.for_each(|e| {
                 if let Ok(p) = e {
                     println!("{p:?}");
                 }
@@ -360,10 +348,7 @@ fn main() -> Result<(), errors::Error> {
         } => {
             println!("Finding instances...");
 
-            let instance_path = args
-                .instance
-                .map(|p| p.find())
-                .unwrap_or_else(find_project)?;
+            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
             let (source, dest, source_is_remote) = if let Some(source) = from {
                 let source_path = source.find()?;

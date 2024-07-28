@@ -7,7 +7,8 @@
 
 // extern crate libc;
 
-pub mod c_deps;
+// Gave up using libclipboard
+// pub mod c_deps;
 pub mod crypto;
 pub mod key;
 pub mod project;
@@ -23,20 +24,17 @@ use core::{
 
 use crypto::decrypt;
 use key::unlock_key;
-use libc::{exit, fdopen, fopen, fprintf, free, malloc, memcpy, printf, realloc, STDOUT_FILENO};
+use libc::{
+    exit, fdopen, fflush, fopen, fprintf, free, getchar, malloc, memcpy, printf, realloc, snprintf,
+    system, STDERR_FILENO, STDOUT_FILENO,
+};
 use project::find_loc;
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
     Deserialize,
 };
 
-use c_deps::{clipboard_free, clipboard_mode_LCB_CLIPBOARD, clipboard_new, clipboard_set_text_ex};
-use utils::println;
-
-use crate::c_deps::{
-    clipboard_clear, clipboard_has_ownership, clipboard_mode_LCB_PRIMARY,
-    clipboard_mode_LCB_SECONDARY, clipboard_set_text,
-};
+use utils::eprintln;
 
 trait Finish {
     unsafe fn finish(&self) -> !;
@@ -44,7 +42,8 @@ trait Finish {
 
 impl Finish for *const i8 {
     unsafe fn finish(&self) -> ! {
-        libc::printf("ERROR: %s\n\0".as_ptr() as _, *self);
+        let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+        libc::fprintf(stderr, "ERROR: %s\n\0".as_ptr() as _, *self);
         unsafe { exit(1) }
     }
 }
@@ -69,21 +68,39 @@ impl Finish for *mut u8 {
 
 impl Finish for str {
     unsafe fn finish(&self) -> ! {
-        libc::printf("ERROR: %.*s\n\0".as_ptr() as _, self.len(), self.as_ptr());
+        let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+        libc::fprintf(
+            stderr,
+            "ERROR: %.*s\n\0".as_ptr() as _,
+            self.len(),
+            self.as_ptr(),
+        );
         unsafe { exit(1) }
     }
 }
 
 impl Finish for Heaped<i8> {
     unsafe fn finish(&self) -> ! {
-        libc::printf("ERROR: %.*s\n\0".as_ptr() as _, self.size, self.content);
+        let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+        libc::fprintf(
+            stderr,
+            "ERROR: %.*s\n\0".as_ptr() as _,
+            self.size,
+            self.content,
+        );
         unsafe { exit(1) }
     }
 }
 
 impl Finish for Heaped<u8> {
     unsafe fn finish(&self) -> ! {
-        libc::printf("ERROR: %.*s\n\0".as_ptr() as _, self.size, self.content);
+        let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+        libc::fprintf(
+            stderr,
+            "ERROR: %.*s\n\0".as_ptr() as _,
+            self.size,
+            self.content,
+        );
         unsafe { exit(1) }
     }
 }
@@ -91,45 +108,61 @@ impl Finish for Heaped<u8> {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 unsafe fn usage(cmd: *const i8) {
-    libc::printf(
+    let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+    libc::fprintf(
+        stderr,
         "YourSBCode_tiny v%.*s by Naeio, the minimal encrypted file utility\n\0".as_ptr()
             as *const _,
         VERSION.len(),
         VERSION.as_ptr(),
     );
-    libc::printf(
+    libc::fprintf(
+        stderr,
         "Exported from YourSBCode v%.*s\n\0".as_ptr() as *const _,
         VERSION.len(),
         VERSION.as_ptr(),
     );
-    libc::printf("\n\0".as_ptr() as *const _);
-    libc::printf("It allows to decrypt a password/encrypted file from\n\0".as_ptr() as *const _);
-    libc::printf("the current instance. \n\0".as_ptr() as *const _);
-    libc::printf(
+    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
+        "It allows to decrypt a password/encrypted file from\n\0".as_ptr() as *const _,
+    );
+    libc::fprintf(stderr, "the current instance. \n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
         "If no argument is supplied, it opens an interactive interface\n\0".as_ptr() as *const _,
     );
-    libc::printf("\n\0".as_ptr() as *const _);
-    libc::printf(
+    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
         "USAGE: %s [-h|--help] [-v|--version] [<KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr()
             as *const _,
         cmd,
     );
-    libc::printf("\n\0".as_ptr() as *const _);
-    libc::printf("Arguments:\n\0".as_ptr() as *const _);
-    libc::printf(
+    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
+    libc::fprintf(stderr, "Arguments:\n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
         "  <KIND> \tThe kind of data to decrypt. Either `password` or `file`.\n\0".as_ptr()
             as *const _,
     );
-    libc::printf("  <IDENTIFIER> \tThe identifier of the data to decrypt\n\0".as_ptr() as *const _);
-    libc::printf(
+    libc::fprintf(
+        stderr,
+        "  <IDENTIFIER> \tThe identifier of the data to decrypt\n\0".as_ptr() as *const _,
+    );
+    libc::fprintf(
+        stderr,
         "  <OUTPUT> \tWhen decrypting a file, write result in said\n\0".as_ptr() as *const _,
     );
-    libc::printf("           \tfile instead of stdout\n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
+        "           \tfile instead of stdout\n\0".as_ptr() as *const _,
+    );
 }
 
 fn version() {
     unsafe {
-        println!(
+        eprintln!(
             "YourSBCode_tiny v%.*s (from YourSBCode v%.*s)",
             VERSION.len(),
             VERSION.as_ptr(),
@@ -332,7 +365,10 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     };
 
     if args.len() < 3 {
-        unsafe { libc::printf("Missing argument <IDENTIFIER>\n\0".as_ptr() as _) };
+        unsafe {
+            let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+            libc::fprintf(stderr, "Missing argument <IDENTIFIER>\n\0".as_ptr() as _);
+        }
         return 0;
     }
 
@@ -345,12 +381,12 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     let identifier = unsafe { CStr::from_ptr(args[2]) };
 
     let (path, keypath) = find_loc(is_file, identifier);
-    unsafe { println!("Unlocking key...") };
+    unsafe { eprintln!("Unlocking key...") };
     let key = unlock_key(unsafe { CStr::from_ptr(*keypath) });
     if !is_file || output.is_some() {
-        unsafe { println!("Key valid.") };
-        unsafe { println!() };
-        unsafe { println!("Opening file...") };
+        unsafe { eprintln!("Key valid.") };
+        unsafe { eprintln!() };
+        unsafe { eprintln!("Opening file...") };
     }
 
     let content = decrypt(unsafe { CStr::from_ptr(*path) }, &key.into());
@@ -373,7 +409,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
             }
         }
     } else {
-        unsafe { println!("Parsing password...") };
+        unsafe { eprintln!("Parsing password...") };
         let mut body: Heaped<u8> = Heaped::malloc(0);
         for bloc in content {
             let bloc = bloc.unwrap();
@@ -423,9 +459,9 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
                 };
 
                 unsafe {
-                    println!("---------   Content   ---------");
-                    println!("%.*s", body.size, body.ptr());
-                    println!("-------------------------------");
+                    eprintln!("---------   Content   ---------");
+                    eprintln!("%.*s", body.size, body.ptr());
+                    eprintln!("-------------------------------");
 
                     msg.finish()
                 };
@@ -433,25 +469,35 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         };
 
         unsafe {
-            let clipboad = clipboard_new(null_mut() as _);
-            if clipboad.is_null() {
-                println!("Internal error, can't copy to clipboad");
-            } else {
-                let mut pass = password.password;
-                pass.realloc(pass.size + 1).unwrap();
-                *pass.offset(pass.size as isize - 2) = b'\0';
-                println!("pass: %s", *pass);
-                clipboard_set_text(clipboad, pass.ptr() as _);
-                println!("pass: %s", *pass);
-                clipboard_free(clipboad);
-                println!("== Password copied to Clipboard ==");
+            // eprintln!();
+            // fflush(libc::fdopen(libc::STDERR_FILENO, "w".as_ptr() as _));
+            // libc::printf(
+            //     "%.*s\0".as_ptr() as _,
+            //     password.password.size,
+            //     password.password.ptr(),
+            // );
+            // fflush(libc::fdopen(libc::STDOUT_FILENO, "w".as_ptr() as _));
+            eprintln!("== Using xclip to put password in clipboard ==");
+            let pass = password.password;
+            let format = "echo -n %.*s | xclip -selection clipboard\0";
+            let buff = Heaped::<u8>::malloc(pass.size + format.len());
+            let read = snprintf(
+                buff.ptr() as _,
+                buff.size,
+                format.as_ptr() as _,
+                pass.size,
+                pass.ptr(),
+            );
+            if read >= buff.size as _ {
+                "Print should've been alright".finish();
             }
+            system(buff.ptr() as _);
 
             if let Some(data) = password.data {
-                println!("---------   associated data   ---------");
-                println!("(ptr: %d)", data.ptr());
-                println!("%.*s", data.size, data.ptr());
-                println!("---------------------------------------");
+                eprintln!("---------   associated data   ---------");
+                eprintln!("(ptr: %d)", data.ptr());
+                eprintln!("%.*s", data.size, data.ptr());
+                eprintln!("---------------------------------------");
             }
         };
     }
@@ -461,12 +507,14 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
 #[panic_handler]
 fn my_panic(info: &core::panic::PanicInfo) -> ! {
     unsafe {
-        libc::printf("=== Progam panicked ===\n\0".as_ptr() as _);
+        let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
+        libc::fprintf(stderr, "=== Progam panicked ===\n\0".as_ptr() as _);
 
         if let Some(s) = info.payload().downcast_ref::<&str>() {
-            libc::printf("ERROR: %.*s\n\0".as_ptr() as _, s.len(), s.as_ptr());
+            libc::fprintf(stderr, "ERROR: %.*s\n\0".as_ptr() as _, s.len(), s.as_ptr());
         } else if let Some(location) = info.location() {
-            libc::printf(
+            libc::fprintf(
+                stderr,
                 "panic occurred in file '%.*s' at %d:%d\n\0".as_ptr() as _,
                 location.file().len(),
                 location.file().as_ptr(),

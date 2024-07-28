@@ -1,6 +1,6 @@
 //! This module is aimed towards manging the keys, encrypting and decrypting them.
 
-use crate::{crypto::decrypt, utils::println, Finish};
+use crate::{crypto::decrypt, utils::eprintln, Finish};
 use core::{ffi::CStr, mem::MaybeUninit};
 
 use libc::{getchar, tcgetattr, tcsetattr, termios, ECHO, EOF, STDIN_FILENO, TCSANOW};
@@ -16,7 +16,7 @@ pub fn ask_passphase() -> [u8; 32] {
     new_term.c_lflag &= !(ECHO);
 
     loop {
-        unsafe { println!("Enter the passphrase: ") };
+        unsafe { eprintln!("Enter the passphrase: ") };
 
         let mut curr_i = 0;
         unsafe { tcsetattr(STDIN_FILENO, TCSANOW, &new_term as *const _) };
@@ -35,8 +35,8 @@ pub fn ask_passphase() -> [u8; 32] {
 
         if curr_i >= 32 {
             unsafe {
-                println!("Too long passphrase, max is 32 characters.");
-                println!();
+                eprintln!("Too long passphrase, max is 32 characters.");
+                eprintln!();
             }
         } else {
             break;

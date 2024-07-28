@@ -17,10 +17,10 @@ pub enum Error {
     InvalidKeyError,
     NoKey,
     Password(PasswordError),
-    NoProject,
+    NoRepo,
     NoConfigDir,
     NoLocalProj,
-    ProjectAlreadyExists,
+    RepoAlreadyExists,
     Abort,
 }
 
@@ -30,7 +30,7 @@ impl From<PasswordError> for Error {
     }
 }
 
-/// Macro to call the YoursbError::convert function seemlessly
+/// Macro to call the [`YoursbError::convert`] function seemlessly
 #[macro_export]
 macro_rules! _try {
     ([$data:expr] $content:expr) => {

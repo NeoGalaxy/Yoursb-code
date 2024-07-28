@@ -1,4 +1,4 @@
-//! Module relative to anything helping finding a project
+//! Module relative to anything helping finding a repo
 
 use std::{
     env::current_dir,
@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// The name of the directory in which everything is stored when in a local dir
-pub const LOCAL_PROJECT_SUBDIR: &str = ".yoursbcode";
+pub const LOCAL_REPO_SUBDIR: &str = ".yoursbcode";
 
 /// The name of the directory in which everything is stored when in the config dir
 pub const GLOBAL_CONFIG_NAME: &str = "yoursbcode";
@@ -27,10 +27,10 @@ pub const KEY_NAME: &str = "key";
 /// The subdirectory in which files are stored
 pub const FILES_DIR: &str = "files";
 
-/// A datastructure meant to designate if we use the global project or a local one.
+/// A datastructure meant to designate if we use the global repo or a local one.
 /// It implements [`FromStr`] with as format either `global`, `local` or `local:<path>`.
 #[derive(Clone)]
-pub enum ProjectPath {
+pub enum RepoPath {
     Local(Option<PathBuf>),
     Global,
 }
@@ -66,15 +66,15 @@ impl From<OutputFilePosArg> for FilePos {
 }
 
 impl FilePos {
-    pub fn to_path(self, project_path: &Path) -> PathBuf {
+    pub fn to_path(self, repo_path: &Path) -> PathBuf {
         match self {
             FilePos::External(e) => e,
-            FilePos::Internal(i) => project_path.join(FILES_DIR).join(i),
+            FilePos::Internal(i) => repo_path.join(FILES_DIR).join(i),
         }
     }
 }
 
-/// Error when the project path has an invalid syntax
+/// Error when the repo path has an invalid syntax
 #[derive(Debug)]
 pub struct InvalidSyntax();
 
@@ -90,73 +90,73 @@ impl std::error::Error for InvalidSyntax {
     }
 }
 
-impl FromStr for ProjectPath {
+impl FromStr for RepoPath {
     type Err = InvalidSyntax;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "global" {
-            Ok(ProjectPath::Global)
+            Ok(RepoPath::Global)
         } else if s == "local" {
-            Ok(ProjectPath::Local(None))
+            Ok(RepoPath::Local(None))
         } else if let Some(path) = s.strip_prefix("local:") {
             let mut path: PathBuf = path.into();
-            if !path.ends_with(LOCAL_PROJECT_SUBDIR) {
-                path.push(LOCAL_PROJECT_SUBDIR);
+            if !path.ends_with(LOCAL_REPO_SUBDIR) {
+                path.push(LOCAL_REPO_SUBDIR);
             }
-            Ok(ProjectPath::Local(Some(path)))
+            Ok(RepoPath::Local(Some(path)))
         } else {
             Err(InvalidSyntax())
         }
     }
 }
 
-impl ProjectPath {
+impl RepoPath {
     pub fn find(&self) -> Result<PathBuf, errors::Error> {
         match self {
-            ProjectPath::Local(Some(path)) => path
+            RepoPath::Local(Some(path)) => path
                 .canonicalize()
                 .map_err(|e| errors::Error::FileError(path.clone(), e)),
-            ProjectPath::Local(None) => {
-                find_local_projet().and_then(|proj| proj.ok_or(errors::Error::NoLocalProj))
+            RepoPath::Local(None) => {
+                find_local_repo().and_then(|proj| proj.ok_or(errors::Error::NoLocalProj))
             }
-            ProjectPath::Global => find_global_project().ok_or(errors::Error::NoConfigDir),
+            RepoPath::Global => find_global_repo().ok_or(errors::Error::NoConfigDir),
         }
     }
 
     pub fn get_path(&self) -> Result<PathBuf, errors::Error> {
         match self {
-            ProjectPath::Local(Some(path)) => Ok(path.to_owned()),
-            ProjectPath::Local(None) => Ok(current_dir()
-                .unwrap_or(".".into())
-                .join(LOCAL_PROJECT_SUBDIR)),
-            ProjectPath::Global => Ok(dirs::config_local_dir()
+            RepoPath::Local(Some(path)) => Ok(path.to_owned()),
+            RepoPath::Local(None) => {
+                Ok(current_dir().unwrap_or(".".into()).join(LOCAL_REPO_SUBDIR))
+            }
+            RepoPath::Global => Ok(dirs::config_local_dir()
                 .ok_or(errors::Error::NoConfigDir)?
                 .join(GLOBAL_CONFIG_NAME)),
         }
     }
 }
 
-/// Runs [`find_parent_projet`] followed by [`find_config_project`], searching
-/// for the first project it can find.
+/// Runs [`find_parent_repo`] followed by [`find_config_repo`], searching
+/// for the first repo it can find.
 ///
-/// Returns `Some(project)` if a project is found, and `None` otherwise
+/// Returns `Some(repo)` if a repo is found, and `None` otherwise
 ///
 /// May error saying that the current directory can't be accessed.
-pub fn find_project() -> Result<PathBuf, errors::Error> {
-    find_local_projet()?
-        .or_else(find_global_project)
-        .ok_or(errors::Error::NoProject)
+pub fn find_repo() -> Result<PathBuf, errors::Error> {
+    find_local_repo()?
+        .or_else(find_global_repo)
+        .ok_or(errors::Error::NoRepo)
 }
 
-/// Seaches for a project in the current dir and all its parents. Returns `Err(...)` if there's
-/// an issue knowing the current directory, and returns `Ok(None)` if no projet was found.
+/// Seaches for a repo in the current dir and all its parents. Returns `Err(...)` if there's
+/// an issue knowing the current directory, and returns `Ok(None)` if no repo was found.
 ///
-/// If a project is found, returns `Ok(path)` with the path directing to the root dir of the
-/// project
-pub fn find_local_projet() -> Result<Option<PathBuf>, errors::Error> {
+/// If a repo is found, returns `Ok(path)` with the path directing to the root dir of the
+/// repo
+pub fn find_local_repo() -> Result<Option<PathBuf>, errors::Error> {
     let dir = _try!(current_dir(), [".".into()]);
 
     for parent in dir.ancestors() {
-        let path = parent.join(LOCAL_PROJECT_SUBDIR);
+        let path = parent.join(LOCAL_REPO_SUBDIR);
         if path.exists() {
             return Ok(Some(path));
         }
@@ -164,13 +164,13 @@ pub fn find_local_projet() -> Result<Option<PathBuf>, errors::Error> {
     Ok(None)
 }
 
-/// Searches for a project in the config directories, returns `None` if it can't be found.
-pub fn find_global_project() -> Option<PathBuf> {
+/// Searches for a repo in the config directories, returns `None` if it can't be found.
+pub fn find_global_repo() -> Option<PathBuf> {
     let config_dir = dirs::config_local_dir()?.join(GLOBAL_CONFIG_NAME);
     config_dir.canonicalize().ok()
 }
 
-/// Searches for files and directory in the project root directory `root` with the prefix `prefix`.
+/// Searches for files and directory in the repo root directory `root` with the prefix `prefix`.
 ///
 /// Does not recursively seaches for files in found directories
 pub fn find_files(

@@ -4,7 +4,7 @@ use core::{ffi::CStr, ptr::null_mut};
 
 use libc::{closedir, getcwd, opendir, snprintf, strlen, ENOENT};
 
-use crate::{utils::println, Finish, Heaped};
+use crate::{utils::eprintln, Finish, Heaped};
 
 /// The name of the directory in which everything is stored when in a local dir
 pub const LOCAL_PROJECT_SUBDIR: &str = ".yoursbcode";
@@ -147,6 +147,6 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
         unsafe { "INTERNAL ERROR: too small path size".finish() };
     }
 
-    unsafe { println!("Key pos: %s", *key_path) };
+    unsafe { eprintln!("Key pos: %s", *key_path) };
     (file_path, key_path)
 }
