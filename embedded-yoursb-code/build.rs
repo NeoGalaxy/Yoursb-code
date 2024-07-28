@@ -4,7 +4,7 @@ use bindgen::{Builder, CargoCallbacks};
 use cmake::Config;
 
 fn main() {
-    // build dependency
+    /*// build dependency
     let dst = Config::new("third_party/libclipboard").build();
     println!(
         "cargo:rustc-link-search=native={}",
@@ -44,5 +44,5 @@ fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
-        .expect("Couldn't write bindings!");
+        .expect("Couldn't write bindings!");*/
 }

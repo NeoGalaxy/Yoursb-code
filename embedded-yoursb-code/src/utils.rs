@@ -1,14 +1,18 @@
-macro_rules! println {
+macro_rules! eprintfln {
 	($format:literal, $($e:expr),* $(,)?) => {
-	    libc::printf(concat!($format, "\n\0").as_ptr() as _, $($e),*)
+        libc::fprintf(
+        	libc::fdopen(libc::STDERR_FILENO, "w".as_ptr() as _),
+        	concat!($format, "\n\0").as_ptr() as _,
+        	$($e),*
+        )
 	};
 	($format:literal) => {
-		println!($format,)
+		eprintfln!($format,)
 	};
 
 	() => {
-		println!("",)
+		eprintfln!("",)
 	};
 }
 
-pub(crate) use println;
+pub(crate) use eprintfln;

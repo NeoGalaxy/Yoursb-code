@@ -22,9 +22,9 @@ use crate::errors;
 use crate::errors::Error::ConsoleError;
 use crate::errors::YoursbError;
 use crate::key;
-use crate::project::find_project;
-use crate::project::FILES_DIR;
-use crate::project::KEY_NAME;
+use crate::repo::find_repo;
+// use crate::repo::FILES_DIR;
+use crate::repo::KEY_NAME;
 use crate::Action;
 use crate::Cli;
 
@@ -62,9 +62,15 @@ pub struct Password {
     pub data: Option<String>,
 }
 
+/// A representation of the allowed chars in a password. It contains a vector
+/// of the allowed intervals of characters.
+///
+/// It can be parsed from a string, see the [`allowed_chars`](crate::Cli.allowed_chars)
+/// command-line argument for more details.
 #[derive(Clone, Debug)]
 pub struct CharsDist(Vec<(char, char)>);
 
+/// An error kind indicating the parsing of a [`CharsDist`] didn't go well.
 #[derive(Clone, Debug)]
 pub struct InvalidSyntax {
     pos: usize,
@@ -123,7 +129,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
         .instance
         .as_ref()
         .map(|p| p.find())
-        .unwrap_or_else(find_project)?;
+        .unwrap_or_else(find_repo)?;
 
     let pass_dir = proj_dir.join(PASSWORD_DIR);
 
