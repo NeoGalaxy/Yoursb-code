@@ -1,8 +1,9 @@
 //! Module relative to anything helping finding a project
 
-use core::{ffi::CStr, ptr::null_mut};
+use core::{ffi::CStr, mem::MaybeUninit, ptr::null_mut};
 
-use libc::{closedir, getcwd, opendir, snprintf, strlen, ENOENT};
+use libc::{getcwd, stat, strlen, ENOENT};
+use sdl2::sys::SDL_snprintf;
 
 use crate::{utils::eprintfln, Finish, Heaped};
 
@@ -26,7 +27,7 @@ pub fn find_project() -> Heaped<i8> {
     let mut project_dir = loop {
         let buf = unsafe { getcwd(null_mut(), size) };
         if !buf.is_null() {
-            break unsafe { Heaped::new(buf, size) };
+            break unsafe { Heaped::new(buf, size as _) };
         } else {
             size *= 2;
         }
@@ -35,7 +36,8 @@ pub fn find_project() -> Heaped<i8> {
     let curr_dir_len = unsafe { strlen(*project_dir) };
 
     if curr_dir_len + 1 + LOCAL_PROJECT_SUBDIR.len() + 1 > project_dir.size {
-        unsafe { project_dir.realloc(curr_dir_len + 1 + LOCAL_PROJECT_SUBDIR.len() + 1 + 30) }
+        project_dir
+            .realloc(curr_dir_len + 1 + LOCAL_PROJECT_SUBDIR.len() + 1 + 30)
             .expect("ERROR: not enough memory");
     }
 
@@ -43,7 +45,7 @@ pub fn find_project() -> Heaped<i8> {
 
     'main_loop: loop {
         let printed_size = unsafe {
-            snprintf(
+            SDL_snprintf(
                 project_dir.offset(dir_end as _),
                 LOCAL_PROJECT_SUBDIR.len() + 2 + 30,
                 "/%.*s\0".as_ptr() as _,
@@ -54,19 +56,22 @@ pub fn find_project() -> Heaped<i8> {
 
         assert_eq!(printed_size as usize, LOCAL_PROJECT_SUBDIR.len() + 1);
 
-        let dir = unsafe { opendir(*project_dir) };
-        if !dir.is_null() {
-            unsafe { closedir(dir) };
+        // Check dir exists
+        let sb: MaybeUninit<stat> = MaybeUninit::zeroed();
+        if unsafe { stat(*project_dir, &mut sb.assume_init()) } == 0 {
+            // Everything's good
             break project_dir;
         }
+
+        // There's an error, let's manage it
         let e = errno::errno();
         if e.0 != ENOENT {
             let beginning = "Can't call `opendir` for some reason: ";
-            let error = Heaped::malloc(beginning.len() + 4);
+            let error = Heaped::malloc(beginning.len() + 10);
             unsafe {
-                snprintf(
+                SDL_snprintf(
                     *error,
-                    beginning.len() + 4,
+                    beginning.len() + 10,
                     "%.*s%d\0".as_ptr() as _,
                     beginning.len(),
                     beginning,
@@ -76,7 +81,7 @@ pub fn find_project() -> Heaped<i8> {
             unsafe { error.finish() };
         }
 
-        // ENOENT: Dir not found
+        // ENOENT: Dir not found -> remove last element
         for i in (0..dir_end).rev() {
             let c = unsafe { project_dir.offset(i as isize) };
             if unsafe { *c } == '/' as i8 || unsafe { *c } == '\\' as i8 {
@@ -98,7 +103,7 @@ pub fn find_project() -> Heaped<i8> {
 pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
     let project_path = find_project();
 
-    let mut file_path = unsafe { project_path.dupplicate() };
+    let mut file_path = project_path.dupplicate();
     let mut key_path = project_path;
 
     // file path
@@ -109,11 +114,13 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
 
     let new_len = curr_dir_len + to_add.len() + 1 + identifier_len + 1;
     if new_len > file_path.size {
-        unsafe { file_path.realloc(new_len) }.expect("ERROR: not enough memory");
+        file_path
+            .realloc(new_len)
+            .expect("ERROR: not enough memory");
     }
 
     let printed_size = unsafe {
-        snprintf(
+        SDL_snprintf(
             file_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
             "/%s/%s\0".as_ptr() as _,
@@ -131,11 +138,11 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
 
     let new_len = curr_dir_len + KEY_NAME.len() + 1;
     if new_len > key_path.size {
-        unsafe { key_path.realloc(new_len) }.expect("ERROR: not enough memory");
+        key_path.realloc(new_len).expect("ERROR: not enough memory");
     }
 
     let printed_size = unsafe {
-        snprintf(
+        SDL_snprintf(
             key_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
             "/%s\0".as_ptr() as _,

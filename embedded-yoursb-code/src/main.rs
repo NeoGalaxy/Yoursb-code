@@ -24,10 +24,10 @@ use core::{
 use crypto::decrypt;
 use key::unlock_key;
 use libc::{
-    exit, fdopen, fopen, fprintf, free, malloc, memcpy, realloc, snprintf, system, STDERR_FILENO,
-    STDOUT_FILENO,
+    exit, fdopen, fopen, fprintf, free, malloc, memcpy, realloc, STDERR_FILENO, STDOUT_FILENO,
 };
 use project::find_loc;
+use sdl2::sys::SDL_SetClipboardText;
 use serde::{
     de::{self, MapAccess, Visitor},
     Deserialize,
@@ -200,10 +200,10 @@ impl<T> Heaped<T> {
         }
     }
 
-    /// access the pointer to the content
+    /*/// access the pointer to the content
     fn ptr_mut(&mut self) -> *mut T {
         self.content
-    }
+    }*/
 
     /// access the pointer to the content
     fn ptr(&self) -> *const T {
@@ -349,12 +349,11 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     /************** Parsing args **************/
 
     let args = unsafe { slice::from_raw_parts(argv, argc as usize) };
-    if args.len() == 0
-        || args
-            .iter()
-            .map(|a| unsafe { CStr::from_ptr(*a) })
-            .map(|a| a.to_str())
-            .any(|a| a == Ok("-h") || a == Ok("--help"))
+    if args
+        .iter()
+        .map(|a| unsafe { CStr::from_ptr(*a) })
+        .map(|a| a.to_str())
+        .any(|a| a == Ok("-h") || a == Ok("--help"))
     {
         unsafe { usage(args[0]) };
         return 0;
@@ -436,7 +435,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         for bloc in content {
             let bloc = bloc.unwrap();
             let start = unsafe { body.offset(body.size as isize) };
-            unsafe { body.realloc(body.size + bloc.len()) }.unwrap();
+            body.realloc(body.size + bloc.len()).unwrap();
             unsafe { memcpy(start as _, bloc.as_ptr() as _, bloc.len()) };
         }
         let (password, _): (Password, _) = match serde_json_core::from_slice(unsafe {
@@ -499,21 +498,11 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
             //     password.password.ptr(),
             // );
             // fflush(libc::fdopen(libc::STDOUT_FILENO, "w".as_ptr() as _));
-            eprintfln!("== Using xclip to put password in clipboard ==");
-            let pass = password.password;
-            let format = "echo -n %.*s | xclip -selection clipboard\0";
-            let buff = Heaped::<u8>::malloc(pass.size + format.len());
-            let read = snprintf(
-                buff.ptr() as _,
-                buff.size,
-                format.as_ptr() as _,
-                pass.size,
-                pass.ptr(),
-            );
-            if read >= buff.size as _ {
-                "Print should've been alright".finish();
-            }
-            system(buff.ptr() as _);
+            eprintfln!("== Putting pasword in clipboard ==");
+            let mut pass = password.password;
+            pass.realloc(pass.size + 1).unwrap();
+            *pass.offset(pass.size as isize - 1) = b'\0';
+            SDL_SetClipboardText(pass.ptr() as _);
 
             if let Some(data) = password.data {
                 eprintfln!("---------   associated data   ---------");
@@ -526,7 +515,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     0
 }
 
-#[panic_handler]
+/*#[panic_handler]
 fn my_panic(info: &core::panic::PanicInfo) -> ! {
     unsafe {
         let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
@@ -547,3 +536,4 @@ fn my_panic(info: &core::panic::PanicInfo) -> ! {
     };
     unsafe { exit(1) }
 }
+*/

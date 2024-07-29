@@ -1,0 +1,12 @@
+
+[alias]
+
+yoursb = "run --message-format=short -r -p yoursb-code --bin yoursb-code --"
+yoursb-code = "run --message-format=short -r -p yoursb-code --bin yoursb-code --"
+
+tiny = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"
+yoursb-tiny = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"
+yoursb-code-tiny = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"
+embedded = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"
+embedded-yoursb = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"
+embedded-yoursb-code = "run --message-format=short -r -p yoursb-code_tiny --bin yoursb-code_tiny --"

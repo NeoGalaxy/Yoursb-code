@@ -8,7 +8,7 @@ use chacha20poly1305::{
 };
 use libc::{fclose, fopen, fread, FILE};
 
-use crate::{utils::eprintfln, Finish};
+use crate::Finish;
 
 const BUFFER_LEN: usize = 500;
 const TAG_SIZE: usize = 16;
