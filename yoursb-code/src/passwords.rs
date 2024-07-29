@@ -58,7 +58,7 @@ impl From<arboard::Error> for errors::Error {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Password {
     pub password: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub data: Option<String>,
 }
 

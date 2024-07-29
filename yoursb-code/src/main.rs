@@ -64,7 +64,17 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
-    Init,
+    Init {
+        /// The location of the instance to create. Note that this is an alias to the `-i`
+        /// global option, and if both are given, `location` takes priority.
+        location: Option<RepoPath>,
+
+        /// The created instance will be an embedded instance, with an included executable.
+        /// Useful to put on an USB stick. Note that all USB formats does not support running
+        /// applications, we advice to format your stick into NTFS if you're on windows or linux.
+        #[clap(short, long)]
+        embedded: bool,
+    },
 
     /// Indicates where is the current instance, and where one would be attempted to be
     /// created with `init` command. Takes in account the `-i`/`--instance` option.
@@ -237,9 +247,9 @@ pub enum Action {
 fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
-    match &args.command {
-        Commands::Init => {
-            let instance = args.instance.unwrap_or(RepoPath::Global);
+    match args.command {
+        Commands::Init { location, embedded } => {
+            let instance = location.or(args.instance).unwrap_or(RepoPath::Global);
             match &instance {
                 RepoPath::Local(path) => {
                     println!("Creating YourSBCode instance in dir {path:?}")
@@ -257,7 +267,13 @@ fn main() -> Result<(), errors::Error> {
                 let _ = create_dir_all(p);
             }
 
-            key::new_key(&keypath)
+            key::new_key(&keypath)?;
+
+            if embedded {
+                repo::write_embedded_execs(&instance_dir)?;
+            }
+
+            Ok(())
         }
 
         Commands::Locate => {
@@ -300,7 +316,7 @@ fn main() -> Result<(), errors::Error> {
 
         Commands::Encrypt { file, output } => {
             let output: FilePos = output.clone().into();
-            let input = _try!(fs::File::open(file), [file.to_owned()]);
+            let input = _try!(fs::File::open(&file), [file.to_owned()]);
             let bytes = input.bytes().map(|e| e.unwrap()); // TODO
 
             let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
@@ -313,7 +329,7 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Decrypt { input, output } => {
-            let input: FilePos = (*input).clone().into();
+            let input: FilePos = input.clone().into();
 
             let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
@@ -322,14 +338,14 @@ fn main() -> Result<(), errors::Error> {
             let input = input.to_path(&instance_path);
 
             let decrypted = crypto::decrypt_from(&input, (&key).into())?;
-            _try!(fs::write(output, decrypted), [output.to_owned()]);
+            _try!(fs::write(&output, decrypted), [output.to_owned()]);
             Ok(())
         }
 
         Commands::Ls { prefix } => {
             let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
 
-            repo::find_files(instance_path, prefix)?.for_each(|e| {
+            repo::find_files(instance_path, &prefix)?.for_each(|e| {
                 if let Ok(p) = e {
                     println!("{p:?}");
                 }
@@ -337,7 +353,7 @@ fn main() -> Result<(), errors::Error> {
             Ok(())
         }
 
-        Commands::Password { action } => passwords::run(action, &args),
+        Commands::Password { ref action } => passwords::run(action, &args),
 
         Commands::Update {
             from,
@@ -408,7 +424,7 @@ fn main() -> Result<(), errors::Error> {
                     }
                     return;
                 }
-                for entry in WalkDir::new(&source.join(subdir)) {
+                for entry in WalkDir::new(source.join(subdir)) {
                     let entry: PathBuf = match entry {
                         Ok(e) => e.into_path(),
                         Err(err) => {
@@ -461,7 +477,7 @@ fn main() -> Result<(), errors::Error> {
                 }
             };
             println!();
-            if *passwords || !files {
+            if passwords || !files {
                 println!("Copying passwords...");
                 copy_dir(PASSWORD_DIR);
             } else {
@@ -469,7 +485,7 @@ fn main() -> Result<(), errors::Error> {
             }
 
             println!();
-            if *files || !passwords {
+            if files || !passwords {
                 println!("Copying regular files...");
                 copy_dir(FILES_DIR);
             } else {

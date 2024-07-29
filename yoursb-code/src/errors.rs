@@ -37,7 +37,7 @@ macro_rules! _try {
         match $content {
             Ok(val) => val,
             Err(e) => {
-                return e.convert($data);
+                return Err(e.convert($data));
             }
         }
     };
