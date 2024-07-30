@@ -160,12 +160,12 @@ pub enum Commands {
 
         /// If set, files will be copied. If neither `--passwords` nor `--files` is set,
         /// copies both.
-        #[arg(short, long)]
+        #[arg(short = 'F', long)]
         files: bool,
 
         /// Be default, if the passphrase for the current instance works for the remote one,
         /// YourSBCode does not prompt for the password for a second time. This option prevents
-        /// this behaviour.
+        /// this behavior.
         #[arg(long)]
         no_reuse_passphrase: bool,
     },
@@ -203,11 +203,11 @@ pub enum Action {
         /// How to name/identify the password
         identifier: String,
 
-        /// Additionnal data about the password. These will be printed when
-        /// the password gets decrypted (could be a comment for isntance)
+        /// Additional data about the password. These will be printed when
+        /// the password gets decrypted (could be a comment for instance)
         data: Option<String>,
 
-        /// When set, propts for the password instead of generating it randomly
+        /// When set, prompts for the password instead of generating it randomly
         #[arg(short, long)]
         prompt: bool,
 
@@ -222,8 +222,8 @@ pub enum Action {
         #[arg(short, long, default_value = "a..z A..Z !#$%&'*+,-./:;<>=?@^_`|~")]
         allowed_chars: CharsDist,
 
-        /// If the password is randombly generated, YourSBCode will by default
-        /// copy it into your clipboard. To prevent this behaviour, use this option.
+        /// If the password is randomly generated, YourSBCode will by default
+        /// copy it into your clipboard. To prevent this behavior, use this option.
         #[arg(long)]
         no_copy: bool,
     },
