@@ -37,7 +37,7 @@ macro_rules! _try {
         match $content {
             Ok(val) => val,
             Err(e) => {
-                return Err(e.convert($data));
+                return Err($crate::errors::YoursbError::convert(e, $data));
             }
         }
     };
@@ -45,7 +45,7 @@ macro_rules! _try {
         match $content {
             Ok(val) => val,
             Err(e) => {
-                return Err(e.convert($data));
+                return Err($crate::errors::YoursbError::convert(e, $data));
             }
         }
     };

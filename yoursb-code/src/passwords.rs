@@ -2,12 +2,10 @@
 
 use std::fmt::Display;
 use std::fs;
-use std::fs::read_dir;
 use std::io::stdout;
 use std::io::Write;
 use std::matches;
 use std::ops::RangeInclusive;
-use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -16,17 +14,17 @@ use chacha20poly1305::aead::OsRng;
 use rand::distributions::Uniform;
 use rand::Rng;
 
-use crate::_try;
 use crate::crypto;
 use crate::errors;
 use crate::errors::Error::ConsoleError;
 use crate::errors::YoursbError;
 use crate::key;
+use crate::repo::find_elements;
 use crate::repo::find_repo;
 // use crate::repo::FILES_DIR;
 use crate::repo::KEY_NAME;
-use crate::Action;
 use crate::Cli;
+use crate::PasswordAction;
 
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +122,7 @@ impl FromStr for CharsDist {
 /// Run the password manager
 ///
 /// TODO: make functions with each fonctionnality
-pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
+pub fn run(action: &PasswordAction, args: &Cli) -> Result<(), errors::Error> {
     let proj_dir = args
         .instance
         .as_ref()
@@ -134,7 +132,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
     let pass_dir = proj_dir.join(PASSWORD_DIR);
 
     match action {
-        Action::Create {
+        PasswordAction::Create {
             identifier,
             data,
             prompt,
@@ -203,7 +201,7 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
             }
             Ok(())
         }
-        Action::Get { identifier } => {
+        PasswordAction::Get { identifier } => {
             let id_path = pass_dir.join(identifier);
             let full_data =
                 crypto::decrypt_from(&id_path, &key::unlock_key(&proj_dir.join(KEY_NAME))?.into())?;
@@ -229,15 +227,15 @@ pub fn run(action: &Action, args: &Cli) -> Result<(), errors::Error> {
 
             Ok(())
         }
-        Action::List => {
+        PasswordAction::List { prefix } => {
             println!("Listing all encrypted data in the password collection:");
-            for pass in _try!(read_dir(&pass_dir), [Path::new("passwords/").into()]) {
-                let pass = _try!(pass, [Path::new("passwords/").into()]);
-                println!("- {}", pass.file_name().to_string_lossy());
+            for pass in find_elements(&pass_dir, prefix)? {
+                let pass = pass?;
+                println!("- {}", pass.file_name().unwrap().to_string_lossy());
             }
             Ok(())
         }
-        Action::Delete { identifier } => {
+        PasswordAction::Delete { identifier } => {
             let id_path = pass_dir.join(identifier);
             println!("Deleting...");
             fs::remove_file(&id_path).map_err(|e| e.convert(id_path))?;

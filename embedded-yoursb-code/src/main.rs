@@ -15,7 +15,7 @@ pub mod project;
 pub mod utils;
 
 use core::{
-    ffi::CStr,
+    ffi::{c_char, CStr},
     mem::size_of,
     ops::{Deref, DerefMut},
     slice,
@@ -27,7 +27,10 @@ use libc::{
     exit, fdopen, fopen, fprintf, free, malloc, memcpy, realloc, STDERR_FILENO, STDOUT_FILENO,
 };
 use project::find_loc;
-use sdl2::sys::SDL_SetClipboardText;
+use sdl2::sys::{
+    SDL_GetClipboardText, SDL_GetError, SDL_HasClipboardText, SDL_Init, SDL_SetClipboardText,
+    SDL_bool,
+};
 use serde::{
     de::{self, MapAccess, Visitor},
     Deserialize,
@@ -135,12 +138,16 @@ unsafe fn usage(cmd: *const i8) {
     libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
     libc::fprintf(
         stderr,
-        "USAGE: %s [-h|--help] [-v|--version] [<KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr()
+        "USAGE: %s [-h|--help] [-v|--version] [clear | <KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr()
             as *const _,
         cmd,
     );
     libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
     libc::fprintf(stderr, "Arguments:\n\0".as_ptr() as *const _);
+    libc::fprintf(
+        stderr,
+        "  clear \tclears the clipboard\n\0".as_ptr() as *const _,
+    );
     libc::fprintf(
         stderr,
         "  <KIND> \tThe kind of data to decrypt. Either `password` or `file`.\n\0".as_ptr()
@@ -375,7 +382,36 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     let is_file = match unsafe { CStr::from_ptr(args[1]).to_str() } {
         Ok("f" | "file") => true,
         Ok("p" | "pass" | "password") => false,
-        _ => unsafe { "first argument should be 'file' or 'password'".finish() },
+        Ok("c" | "cl" | "clear") => {
+            // let sdl_context = sdl2::init().unwrap();
+            // let _video_subsystem = sdl_context.video().unwrap();
+            if unsafe { SDL_Init(SDL_INIT_VIDEO) } == 0 {
+                if unsafe { SDL_HasClipboardText() } == SDL_bool::SDL_TRUE {
+                    unsafe { eprintfln!("1: Current clipboard: %s", SDL_GetClipboardText()) };
+                } else {
+                    unsafe { eprintfln!("blblbl") };
+                };
+
+                let content = b"hello\0".as_ptr();
+
+                // video_subsystem.clipboard().set_clipboard_text("hello").unwrap();
+                let err = unsafe { SDL_SetClipboardText(content as *const c_char) };
+
+                if unsafe { SDL_HasClipboardText() } == SDL_bool::SDL_TRUE {
+                    unsafe { eprintfln!("2: Current clipboard: %s", SDL_GetClipboardText()) };
+                } else {
+                    unsafe { eprintfln!("blblbl") };
+                };
+                if err == 0 {
+                    unsafe { eprintfln!("Successfully cleared clipboard") };
+                    return 0;
+                }
+            }
+
+            unsafe { eprintfln!("Error when clearing: %s", SDL_GetError()) };
+            unsafe { "Unable to clear clipboard".finish() };
+        }
+        _ => unsafe { "first argument should be 'file', 'password' or 'clear'".finish() },
     };
 
     if args.len() < 3 {

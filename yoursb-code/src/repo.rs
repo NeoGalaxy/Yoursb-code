@@ -174,12 +174,13 @@ pub fn find_global_repo() -> Option<PathBuf> {
 /// Searches for files and directory in the repo root directory `root` with the prefix `prefix`.
 ///
 /// Does not recursively seaches for files in found directories
-pub fn find_files(
-    root: PathBuf,
-    prefix: &str,
-) -> Result<impl Iterator<Item = Result<PathBuf, errors::Error>>, errors::Error> {
-    let final_path = root.join(FILES_DIR).join(prefix);
+pub fn find_elements<'a>(
+    root: &'a Path,
+    prefix: &'a str,
+) -> Result<impl Iterator<Item = Result<PathBuf, errors::Error>> + 'a, errors::Error> {
+    let final_path = root.join(prefix);
 
+    // Remove final component if it's not a dir
     let (dir, file_prefix) = if final_path.is_dir() {
         (prefix.into(), String::from(""))
     } else {
@@ -198,20 +199,17 @@ pub fn find_files(
     // To allow both closures to own it
     let dir2 = dir.clone();
 
-    Ok(_try!(
-        read_dir(root.join(FILES_DIR).join(dir.clone())),
-        [Path::new("files/").join(&dir)]
-    )
-    .map(move |subdir| {
-        let subpath = _try!(subdir, [Path::new("files/").join(&dir)]);
-        Ok(subpath.file_name())
-    })
-    .filter(move |e| {
-        e.as_ref()
-            .map(|name| name.to_string_lossy().starts_with(&file_prefix))
-            .unwrap_or(true)
-    })
-    .map(move |e| e.map(|name| Path::new("files/").join(dir2.join(name)))))
+    Ok(_try!(read_dir(root.join(&dir)), [dir])
+        .map(move |subdir| {
+            let subpath = _try!(subdir, [root.join(&dir)]);
+            Ok(subpath.file_name())
+        })
+        .filter(move |e| {
+            e.as_ref()
+                .map(|name| name.to_string_lossy().starts_with(&file_prefix))
+                .unwrap_or(true)
+        })
+        .map(move |e| e.map(|name| root.join(dir2.join(name)))))
 }
 
 pub(crate) fn write_embedded_execs(instance_dir: &Path) -> Result<(), errors::Error> {
@@ -227,5 +225,6 @@ pub(crate) fn write_embedded_execs(instance_dir: &Path) -> Result<(), errors::Er
         let perms = Permissions::from_mode(0o755);
         _try!([instance_dir.join("linux.bin")] file.set_permissions(perms));
     }
+    _try!([instance_dir.join("VERSION")] fs::write(instance_dir.join("VERSION"), "EMBEDDED_VERSION"));
     Ok(())
 }

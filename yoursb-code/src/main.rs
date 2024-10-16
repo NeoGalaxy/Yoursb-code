@@ -13,7 +13,7 @@ pub mod passwords;
 pub mod repo;
 
 use passwords::CharsDist;
-use repo::{find_repo, FilePos, RepoPath, KEY_NAME};
+use repo::{find_repo, write_embedded_execs, FilePos, RepoPath, KEY_NAME};
 use std::{
     fs::{self, create_dir_all, remove_dir_all},
     io::{stdin, Read},
@@ -31,6 +31,8 @@ use crate::{
     passwords::PASSWORD_DIR,
     repo::FILES_DIR,
 };
+
+const EMBEDDED_VERSION: f64 = 0.1;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -65,23 +67,39 @@ pub struct Cli {
 pub enum Commands {
     /// Create a YourSBCode instance. Prompts for the passphrase to use for this instance.
     Init {
-        /// The location of the instance to create. Note that this is an alias to the `-i`
+        /// The location of the instance to create. Note that this is an alias to the `-i`{n}
         /// global option, and if both are given, `location` takes priority.
         location: Option<RepoPath>,
 
-        /// The created instance will be an embedded instance, with an included executable.
-        /// Useful to put on an USB stick. Note that all USB formats does not support running
+        /// The created instance will be an embedded instance, with an included executable.{n}
+        /// Useful to put on an USB stick. Note that all USB formats does not support running{n}
         /// applications, we advice to format your stick into NTFS if you're on windows or linux.
         #[clap(short, long)]
         embedded: bool,
     },
 
-    /// Indicates where is the current instance, and where one would be attempted to be
-    /// created with `init` command. Takes in account the `-i`/`--instance` option.
-    /// Check `YourSBCode -h` for more details.
+    /// Indicates where is the current instance, and where one would be attempted to be{n}
+    /// created with `init` command. Takes in account the `-i`/`--instance` option.{n}
+    /// Check `YourSBCode -h` for more details.{n}
     /// Aliases: `loc`, `whereis`
     #[clap(aliases = &["loc", "whereis"])]
     Locate,
+
+    /// Clears the clipboard. Useful if you don't know how to remove a password from your clipboard{n}
+    /// Aliases: `c`, `cl`
+    #[clap(aliases = &["c", "cl"])]
+    Clear,
+
+    /// Allows to install or update an embedded instance
+    Embedded {
+        /// The location of the instance to update.
+        location: RepoPath,
+
+        /// Force the "update", even if the existing version is a newer release than the
+        /// one that will be put instead
+        #[clap(short, long)]
+        force: bool,
+    },
 
     /// Deletes the YourSBCode instance designated by --instance. Alias: `del`
     #[clap(aliases = &["del"])]
@@ -91,47 +109,24 @@ pub enum Commands {
         force: bool,
     },
 
-    /// Executes an encryption. Prompts for the passphrase to unlock the key. Aliases: `e`, `en`
-    #[clap(aliases = &["e", "en"])]
-    Encrypt {
-        /// File to encrypt.
-        file: PathBuf,
-
-        /// output file.
-        #[clap(flatten)]
-        output: OutputFilePosArg,
-    },
-
-    /// Executes a decryption. Prompts for the passphrase to unlock the key. Aliases: `d`, `de`
-    #[clap(aliases = &["d", "de"])]
-    Decrypt {
-        /// input file.
-        #[clap(flatten)]
-        input: InputFilePosArg,
-
-        /// Output path of the decrypted file.
-        #[arg(short, long, default_value = "output.txt")]
-        output: PathBuf,
-    },
-
-    /// Displays the elements in the global YourSBCode instance. The displayed element ids stops
-    /// {n}at the first encountered `/` after the prefix. This does NOT require the passphrase.
-    Ls {
-        /// The prefix of the elements to display
-        #[clap(default_value = ".")]
-        prefix: String,
-    },
-
-    /// Executes a decryption. Prompts for the passphrase to unlock the key. Aliases: `p`, `pass`
+    /// Operations for passwords. Aliases: `p`, `pass`
     #[clap(aliases = &["p", "pass"])]
     Password {
         /// The action to do.
         #[command(subcommand)]
-        action: Action,
+        action: PasswordAction,
     },
 
-    /// Copies the encrypted files from an instance to another. One of them is the one specified
-    /// by `--instance` on the start of the command (current instance), the other one is either
+    /// Operations for files. Aliases: `f`
+    #[clap(aliases = &["f"])]
+    File {
+        /// The action to do.
+        #[command(subcommand)]
+        action: FileAction,
+    },
+
+    /// Copies the encrypted files from an instance to another. One of them is the one specified{n}
+    /// by `--instance` on the start of the command (current instance), the other one is either{n}
     /// from the option `--from` or `--into` in this subcommand (remote instance).
     ///
     /// This command will first ask the key of the "current instance" and then the one of the
@@ -196,7 +191,7 @@ pub struct OutputFilePosArg {
 }
 
 #[derive(Subcommand)]
-pub enum Action {
+pub enum PasswordAction {
     /// Creates and encrypts a password. Alias: `c`
     #[clap(aliases = &["c"])]
     Create {
@@ -235,11 +230,51 @@ pub enum Action {
     },
     /// List all password ids, aliases: `l`, `ls`
     #[clap(aliases = &["l", "ls"])]
-    List,
+    List {
+        /// If specified, will filter out all the passwords that do not start by this
+        #[clap(default_value = ".")]
+        prefix: String,
+    },
     /// Delete a password, alias: `del`
     #[clap(aliases = &["del"])]
     Delete {
         /// The password to delete
+        identifier: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum FileAction {
+    /// Encrypts a file. Aliases: `e`, `en`, `encr`, `create`
+    #[clap(aliases = &["c"])]
+    Encrypt {
+        /// File to encrypt.
+        file: PathBuf,
+
+        #[clap(flatten)]
+        output: OutputFilePosArg,
+    },
+    /// Queries for a encrypted file, aliases: `d`, `de`, `get`, `g`
+    #[clap(aliases = &["g"])]
+    Decrypt {
+        #[clap(flatten)]
+        input: InputFilePosArg,
+
+        /// Output path of the decrypted file.
+        #[arg(short, long, default_value = "decrypted.txt")]
+        output: PathBuf,
+    },
+    /// List all encrypted file ids, aliases: `l`, `ls`
+    #[clap(aliases = &["l", "ls"])]
+    List {
+        /// If specified, will filter out all the encrypted files that do not start by this
+        #[clap(default_value = ".")]
+        prefix: String,
+    },
+    /// Delete a encrypted file from the YSBC instance, alias: `del`
+    #[clap(aliases = &["del"])]
+    Delete {
+        /// The encrypted file to delete
         identifier: String,
     },
 }
@@ -314,43 +349,75 @@ fn main() -> Result<(), errors::Error> {
             Ok(())
         }
 
-        Commands::Encrypt { file, output } => {
-            let output: FilePos = output.clone().into();
-            let input = _try!(fs::File::open(&file), [file.to_owned()]);
-            let bytes = input.bytes().map(|e| e.unwrap()); // TODO
-
-            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-            let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
-
-            let output = output.to_path(&instance_path);
-
-            crypto::encrypt_to(bytes, &output, (&key).into())
-        }
-
-        Commands::Decrypt { input, output } => {
-            let input: FilePos = input.clone().into();
-
-            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-            let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
-
-            let input = input.to_path(&instance_path);
-
-            let decrypted = crypto::decrypt_from(&input, (&key).into())?;
-            _try!(fs::write(&output, decrypted), [output.to_owned()]);
+        Commands::Clear => {
+            arboard::Clipboard::new()?.set_text("")?;
+            println!("Successfully cleared clipboard");
             Ok(())
         }
-
-        Commands::Ls { prefix } => {
-            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-            repo::find_files(instance_path, &prefix)?.for_each(|e| {
-                if let Ok(p) = e {
-                    println!("{p:?}");
+        Commands::Embedded { location, force } => {
+            let instance_dir = location.get_path()?;
+            println!("Updating instance at {instance_dir:?}...");
+            if let Ok(version) = fs::read_to_string(instance_dir.join("VERSION")) {
+                if !force && version.parse::<f64>().is_ok_and(|v| v > EMBEDDED_VERSION) {
+                    println!(
+                        "Can't reinstall embedded instance: \
+                        embedded instance is more recent than the local version."
+                    );
+                    println!("To force, re-run with the `--force` option.");
+                    return Ok(());
                 }
-            });
+            }
+            println!("Done");
+            write_embedded_execs(&instance_dir)?;
             Ok(())
+        }
+
+        Commands::File { action } => {
+            match action {
+                FileAction::Encrypt { file, output } => {
+                    let output: FilePos = output.clone().into();
+                    let input = _try!(fs::File::open(&file), [file.to_owned()]);
+                    let bytes = input.bytes().map(|e| e.unwrap()); // TODO
+
+                    let instance_path =
+                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
+
+                    let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
+
+                    let output = output.to_path(&instance_path);
+
+                    crypto::encrypt_to(bytes, &output, (&key).into())
+                }
+
+                FileAction::Decrypt { input, output } => {
+                    let input: FilePos = input.clone().into();
+
+                    let instance_path =
+                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
+
+                    let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
+
+                    let input = input.to_path(&instance_path);
+
+                    let decrypted = crypto::decrypt_from(&input, (&key).into())?;
+                    _try!(fs::write(&output, decrypted), [output.to_owned()]);
+                    Ok(())
+                }
+                FileAction::List { prefix } => {
+                    let instance_path =
+                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
+
+                    repo::find_elements(&instance_path.join(FILES_DIR), &prefix)?.for_each(|e| {
+                        if let Ok(p) = e {
+                            println!("{p:?}");
+                        }
+                    });
+                    Ok(())
+                }
+                FileAction::Delete { identifier } => {
+                    todo!()
+                }
+            }
         }
 
         Commands::Password { ref action } => passwords::run(action, &args),
