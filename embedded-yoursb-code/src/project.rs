@@ -2,8 +2,7 @@
 
 use core::{ffi::CStr, mem::MaybeUninit, ptr::null_mut};
 
-use libc::{getcwd, stat, strlen, ENOENT};
-use sdl2::sys::SDL_snprintf;
+use libc::{getcwd, snprintf, stat, strlen, ENOENT};
 
 use crate::{utils::eprintfln, Finish, Heaped};
 
@@ -45,7 +44,7 @@ pub fn find_project() -> Heaped<i8> {
 
     'main_loop: loop {
         let printed_size = unsafe {
-            SDL_snprintf(
+            snprintf(
                 project_dir.offset(dir_end as _),
                 LOCAL_PROJECT_SUBDIR.len() + 2 + 30,
                 "/%.*s\0".as_ptr() as _,
@@ -67,9 +66,9 @@ pub fn find_project() -> Heaped<i8> {
         let e = errno::errno();
         if e.0 != ENOENT {
             let beginning = "Can't call `opendir` for some reason: ";
-            let error = Heaped::malloc(beginning.len() + 10);
+            let error = Heaped::alloc(beginning.len() + 10);
             unsafe {
-                SDL_snprintf(
+                snprintf(
                     *error,
                     beginning.len() + 10,
                     "%.*s%d\0".as_ptr() as _,
@@ -120,7 +119,7 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
     }
 
     let printed_size = unsafe {
-        SDL_snprintf(
+        snprintf(
             file_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
             "/%s/%s\0".as_ptr() as _,
@@ -142,7 +141,7 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
     }
 
     let printed_size = unsafe {
-        SDL_snprintf(
+        snprintf(
             key_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
             "/%s\0".as_ptr() as _,

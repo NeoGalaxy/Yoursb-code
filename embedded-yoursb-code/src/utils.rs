@@ -1,3 +1,21 @@
+macro_rules! printfln {
+	($format:literal, $($e:expr),* $(,)?) => {
+        libc::printf(
+        	concat!($format, "\n\0").as_ptr() as _,
+        	$($e),*
+        )
+	};
+	($format:literal) => {
+		printfln!($format,)
+	};
+
+	() => {
+		printfln!("",)
+	};
+}
+
+pub(crate) use printfln;
+
 macro_rules! eprintfln {
 	($format:literal, $($e:expr),* $(,)?) => {
         libc::fprintf(

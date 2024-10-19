@@ -2,41 +2,40 @@
 //! It aims to be as small as possible.
 
 #![feature(c_variadic)]
-#![no_std]
+// #![no_std]
+// TODO: add back the no_std
 #![no_main]
 
 // extern crate libc;
 
-// Gave up using libclipboard
-// pub mod c_deps;
 pub mod crypto;
 pub mod key;
 pub mod project;
 pub mod utils;
 
 use core::{
-    ffi::{c_char, CStr},
-    mem::size_of,
+    ffi::CStr,
+    mem::{align_of, size_of},
     ops::{Deref, DerefMut},
-    slice,
+    ptr, slice,
 };
+use std::{ptr::null_mut, time::Duration};
 
 use crypto::decrypt;
 use key::unlock_key;
 use libc::{
-    exit, fdopen, fopen, fprintf, free, malloc, memcpy, realloc, STDERR_FILENO, STDOUT_FILENO,
+    c_void, exit, fdopen, fopen, fprintf, free, memcpy, nanosleep, posix_memalign, sleep, usleep,
+    STDERR_FILENO, STDOUT_FILENO,
 };
 use project::find_loc;
-use sdl2::sys::{
-    SDL_GetClipboardText, SDL_GetError, SDL_HasClipboardText, SDL_Init, SDL_SetClipboardText,
-    SDL_bool,
-};
 use serde::{
     de::{self, MapAccess, Visitor},
     Deserialize,
 };
 
 use utils::eprintfln;
+
+use crate::utils::printfln;
 
 // A custom exit: finishes the execution of the program prematurely with a message
 trait Finish {
@@ -179,9 +178,9 @@ fn version() {
     }
 }
 
-/// Datastructure that is saved on the heap. It frees itself upon drop
+/// Data-structure that is saved on the heap. It frees itself upon drop
 pub struct Heaped<T> {
-    content: *mut T,
+    content: *mut T, // Todo: make it non-null for Option optimisation
     size: usize,
 }
 
@@ -190,20 +189,41 @@ impl<T> Heaped<T> {
     ///
     /// # Safety
     ///
-    /// The pointer should be a pointer obtained through malloc. Espetially,
-    /// it should be free-able, realloc-able. Also, it is assumed to have the
+    /// The pointer should be a pointer that is free-able. Also, it is assumed to have the
     /// ownership over the content.
+    ///
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// * if `content` is not null, it must be valid for reads for `size * mem::size_of::<T>()`
+    ///   many bytes, and it must be properly aligned. This means in particular:
+    ///
+    ///     * The entire memory range of this slice must be contained within a single allocated
+    ///       object.
+    ///       This can never span across multiple allocated objects.
+    ///
+    /// * The total size `size * mem::size_of::<T>()` of the slice must be no larger than `isize::MAX`,
+    ///   and adding that size to `content` must not "wrap around" the address space.
+    ///   See the safety documentation of [`pointer::offset`].
+    ///
     unsafe fn new(content: *mut T, size: usize) -> Self {
         Heaped { content, size }
     }
 
     /// Alloc a new Heaped
-    fn malloc(size: usize) -> Self {
-        unsafe {
-            Heaped {
-                content: malloc(size * size_of::<T>()) as _,
-                size,
-            }
+    fn alloc(size: usize) -> Self {
+        let mut ptr = ptr::null_mut();
+        let res = unsafe {
+            posix_memalign(
+                &mut ptr,
+                align_of::<T>().max(size_of::<usize>()),
+                size * size_of::<T>(),
+            )
+        };
+        assert_eq!(0, res); // or whatever other way to hnadle errors
+
+        Heaped {
+            content: ptr as _,
+            size,
         }
     }
 
@@ -217,28 +237,61 @@ impl<T> Heaped<T> {
         self.content
     }
 
+    /// access the content as a slice
+    ///
+    /// # Safety
+    ///
+    /// (inherited from [slice::from_raw_parts], but the case of null pointers is checked)
+    ///
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// * The content of `self` must be properly initialized values of type `T`.
+    ///
+    /// * The memory referenced by the returned slice must not be mutated for the duration
+    ///   of lifetime `'a`, except inside an `UnsafeCell`.
+    ///
+    /// * The total size `len * mem::size_of::<T>()` of the slice must be no larger than `isize::MAX`,
+    ///   and adding that size to `data` must not "wrap around" the address space.
+    ///   See the safety documentation of [`pointer::offset`].
+    ///
+    unsafe fn sliced(&self) -> &[T] {
+        slice::from_raw_parts(self.ptr(), self.size)
+    }
+
     /// Reallocs the content
     fn realloc(&mut self, new_size: usize) -> Result<(), ()> {
-        let new_loc = unsafe { realloc(self.content as _, new_size * size_of::<T>()) };
-        if new_loc.is_null() {
-            Err(())
-        } else {
-            self.content = new_loc as _;
-            self.size = new_size;
-            Ok(())
+        // TODO: optimise
+        if new_size > self.size {
+            let mut ptr = ptr::null_mut();
+            let res = unsafe {
+                posix_memalign(
+                    &mut ptr,
+                    align_of::<T>().max(size_of::<usize>()),
+                    new_size * size_of::<T>(),
+                )
+            };
+            assert_eq!(0, res); // or whatever other way to hnadle errors
+            unsafe { free(self.content as *mut c_void) };
+            self.content = ptr as *mut T;
         }
+
+        self.size = new_size;
+        Ok(())
     }
 }
 
 impl<T: Copy> Heaped<T> {
-    /// Dupplicates the content of the Heaped
+    /// Dupplicates the content of the Heaped by memcpy-ing the content
     fn dupplicate(&self) -> Self {
-        let new_mem = unsafe { malloc(self.size * size_of::<T>()) };
-        unsafe { memcpy(new_mem, self.ptr() as *const _, self.size * size_of::<T>()) };
-        Heaped {
-            content: new_mem as *mut _,
-            size: self.size,
-        }
+        let new_mem = Self::alloc(self.size);
+        unsafe {
+            memcpy(
+                new_mem.content as *mut c_void,
+                self.ptr() as *const c_void,
+                self.size * size_of::<T>(),
+            )
+        };
+        new_mem
     }
 }
 
@@ -296,7 +349,7 @@ impl<'de> Deserialize<'de> for Password {
             where
                 E: de::Error,
             {
-                let res = Heaped::<u8>::malloc(v.len());
+                let res = Heaped::<u8>::alloc(v.len());
                 unsafe { memcpy(res.ptr() as _, v.as_ptr() as _, v.len()) };
                 Ok(Field(res))
             }
@@ -383,33 +436,20 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         Ok("f" | "file") => true,
         Ok("p" | "pass" | "password") => false,
         Ok("c" | "cl" | "clear") => {
-            // let sdl_context = sdl2::init().unwrap();
-            // let _video_subsystem = sdl_context.video().unwrap();
-            if unsafe { SDL_Init(SDL_INIT_VIDEO) } == 0 {
-                if unsafe { SDL_HasClipboardText() } == SDL_bool::SDL_TRUE {
-                    unsafe { eprintfln!("1: Current clipboard: %s", SDL_GetClipboardText()) };
-                } else {
-                    unsafe { eprintfln!("blblbl") };
-                };
-
-                let content = b"hello\0".as_ptr();
-
-                // video_subsystem.clipboard().set_clipboard_text("hello").unwrap();
-                let err = unsafe { SDL_SetClipboardText(content as *const c_char) };
-
-                if unsafe { SDL_HasClipboardText() } == SDL_bool::SDL_TRUE {
-                    unsafe { eprintfln!("2: Current clipboard: %s", SDL_GetClipboardText()) };
-                } else {
-                    unsafe { eprintfln!("blblbl") };
-                };
-                if err == 0 {
-                    unsafe { eprintfln!("Successfully cleared clipboard") };
-                    return 0;
-                }
-            }
-
-            unsafe { eprintfln!("Error when clearing: %s", SDL_GetError()) };
-            unsafe { "Unable to clear clipboard".finish() };
+            let clip = x11_clipboard::Clipboard::new().unwrap();
+            clip.store(
+                clip.setter.atoms.clipboard,
+                clip.setter.atoms.utf8_string,
+                b" \0",
+            )
+            .unwrap();
+            let ts = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 50_000_000,
+            };
+            unsafe { nanosleep(&ts, null_mut()) };
+            unsafe { printfln!("Clip content successfully cleared") };
+            return 0;
         }
         _ => unsafe { "first argument should be 'file', 'password' or 'clear'".finish() },
     };
@@ -467,7 +507,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         }
     } else {
         unsafe { eprintfln!("Parsing password...") };
-        let mut body: Heaped<u8> = Heaped::malloc(0);
+        let mut body: Heaped<u8> = Heaped::alloc(0);
         for bloc in content {
             let bloc = bloc.unwrap();
             let start = unsafe { body.offset(body.size as isize) };
@@ -525,21 +565,19 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
             }
         };
 
-        unsafe {
-            // eprintln!();
-            // fflush(libc::fdopen(libc::STDERR_FILENO, "w".as_ptr() as _));
-            // libc::printf(
-            //     "%.*s\0".as_ptr() as _,
-            //     password.password.size,
-            //     password.password.ptr(),
-            // );
-            // fflush(libc::fdopen(libc::STDOUT_FILENO, "w".as_ptr() as _));
-            eprintfln!("== Putting pasword in clipboard ==");
-            let mut pass = password.password;
-            pass.realloc(pass.size + 1).unwrap();
-            *pass.offset(pass.size as isize - 1) = b'\0';
-            SDL_SetClipboardText(pass.ptr() as _);
+        unsafe { eprintfln!("== Putting password in clipboard ==") };
+        let clip = x11_clipboard::Clipboard::new().unwrap();
+        let mut pass = password.password;
+        pass.realloc(pass.size + 1).unwrap();
+        unsafe { *pass.offset(pass.size as isize - 1) = b'\0' };
+        clip.store(
+            clip.setter.atoms.clipboard,
+            clip.setter.atoms.utf8_string,
+            unsafe { pass.sliced() },
+        )
+        .unwrap();
 
+        unsafe {
             if let Some(data) = password.data {
                 eprintfln!("---------   associated data   ---------");
                 eprintfln!("(ptr: %d)", data.ptr());
@@ -571,5 +609,4 @@ fn my_panic(info: &core::panic::PanicInfo) -> ! {
         }
     };
     unsafe { exit(1) }
-}
-*/
+}*/
