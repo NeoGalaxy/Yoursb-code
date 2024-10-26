@@ -8,6 +8,8 @@ use std::matches;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::thread::sleep;
+use std::time::Duration;
 
 use chacha20poly1305::aead::OsRng;
 
@@ -191,8 +193,11 @@ pub fn run(action: &PasswordAction, args: &Cli) -> Result<(), errors::Error> {
             println!("Password saved");
 
             if !*prompt && !no_copy {
-                let res =
-                    arboard::Clipboard::new().and_then(|mut c| c.set_text(&full_data.password));
+                let res = arboard::Clipboard::new().and_then(|mut c| {
+                    c.set_text(&full_data.password)?;
+                    sleep(Duration::from_millis(100));
+                    Ok(())
+                });
                 if let Err(err) = res {
                     println!("Unable to copy password to Clipboard: {err}");
                 } else {
@@ -214,8 +219,10 @@ pub fn run(action: &PasswordAction, args: &Cli) -> Result<(), errors::Error> {
 
             println!("Sucessfully uncrypted the password");
             println!();
+            println!("{}", full_data.password);
 
             arboard::Clipboard::new()?.set_text(full_data.password)?;
+            sleep(Duration::from_millis(1000));
 
             println!("== Password copied to Clipboard ==");
 
