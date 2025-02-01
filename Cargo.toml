@@ -3,7 +3,7 @@ resolver = "2"
 
 members = [
     "yoursb-code",
-    "embedded-yoursb-code",
+    "embedded-yoursb-code", "yoursb-domain",
 ]
 
 [profile.embedded-dev]

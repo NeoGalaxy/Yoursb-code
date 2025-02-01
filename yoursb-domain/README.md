@@ -1,0 +1,1 @@
+Contains the domain code of the app. This is shared between the embedded and desktop versions
