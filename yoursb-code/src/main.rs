@@ -26,7 +26,6 @@ use clap::{Args, Subcommand};
 
 use crate::{
     crypto::{decrypt_from, encrypt_to},
-    errors::YoursbError,
     key::ask_passphase,
     passwords::PASSWORD_DIR,
     repo::FILES_DIR,
@@ -80,12 +79,12 @@ pub enum Commands {
 
     /// Indicates where is the current instance, and where one would be attempted to be{n}
     /// created with `init` command. Takes in account the `-i`/`--instance` option.{n}
-    /// Check `YourSBCode -h` for more details.{n}
+    /// Check the description of the `--instance` option in `ysbc -h` for more details.{n}
     /// Aliases: `loc`, `whereis`
     #[clap(aliases = &["loc", "whereis"])]
     Locate,
 
-    /// Clears the clipboard. Useful if you don't know how to remove a password from your clipboard{n}
+    /// Clears the clipboard. Useful to easily remove a password from your clipboard{n}
     /// Aliases: `c`, `cl`
     #[clap(aliases = &["c", "cl"])]
     Clear,
@@ -124,8 +123,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: FileAction,
     },
-
-    /// Copies the encrypted files from an instance to another. One of them is the one specified{n}
+    /*/// Copies the encrypted files from an instance to another. One of them is the one specified{n}
     /// by `--instance` on the start of the command (current instance), the other one is either{n}
     /// from the option `--from` or `--into` in this subcommand (remote instance).
     ///
@@ -163,7 +161,7 @@ pub enum Commands {
         /// this behavior.
         #[arg(long)]
         no_reuse_passphrase: bool,
-    },
+    },*/
 }
 
 #[derive(Debug, Args, Clone)]
@@ -192,8 +190,8 @@ pub struct OutputFilePosArg {
 
 #[derive(Subcommand)]
 pub enum PasswordAction {
-    /// Creates and encrypts a password. Alias: `c`
-    #[clap(aliases = &["c"])]
+    /// Creates and encrypts a password. Aliases: `e`, `en`, `encr`, `encrypt`, `c`, `new`, `add`
+    #[clap(aliases = &["e", "en", "encr", "encrypt", "c", "new", "add"])]
     Create {
         /// How to name/identify the password
         identifier: String,
@@ -222,8 +220,8 @@ pub enum PasswordAction {
         #[arg(long)]
         no_copy: bool,
     },
-    /// Queries for a password, alias: `g`
-    #[clap(aliases = &["g"])]
+    /// Queries for a password. Aliases: `g`, `d`, `de`, `decrypt`
+    #[clap(aliases = &["g", "d", "de", "decrypt"])]
     Get {
         /// The password to find
         identifier: String,
@@ -235,8 +233,8 @@ pub enum PasswordAction {
         #[clap(default_value = ".")]
         prefix: String,
     },
-    /// Delete a password, alias: `del`
-    #[clap(aliases = &["del"])]
+    /// Delete a password, alias: `d`, `del`
+    #[clap(aliases = &["d", "del"])]
     Delete {
         /// The password to delete
         identifier: String,
@@ -245,8 +243,8 @@ pub enum PasswordAction {
 
 #[derive(Subcommand)]
 pub enum FileAction {
-    /// Encrypts a file. Aliases: `e`, `en`, `encr`, `create`
-    #[clap(aliases = &["c"])]
+    /// Encrypts a file. Aliases: `e`, `en`, `encr`, `c`, `create`, `new`, `add`
+    #[clap(aliases = &["e", "en", "encr", "c", "create", "new", "add"])]
     Encrypt {
         /// File to encrypt.
         file: PathBuf,
@@ -254,8 +252,8 @@ pub enum FileAction {
         #[clap(flatten)]
         output: OutputFilePosArg,
     },
-    /// Queries for a encrypted file, aliases: `d`, `de`, `get`, `g`
-    #[clap(aliases = &["g"])]
+    /// Queries for a encrypted file. Aliases: `g`, `get`, `d`, `de`
+    #[clap(aliases = &["g", "get", "d", "de"])]
     Decrypt {
         #[clap(flatten)]
         input: InputFilePosArg,
@@ -271,8 +269,8 @@ pub enum FileAction {
         #[clap(default_value = ".")]
         prefix: String,
     },
-    /// Delete a encrypted file from the YSBC instance, alias: `del`
-    #[clap(aliases = &["del"])]
+    /// Delete a encrypted file from the YSBC instance, alias: `d`, `del`
+    #[clap(aliases = &["d", "del"])]
     Delete {
         /// The encrypted file to delete
         identifier: String,
@@ -421,8 +419,7 @@ fn main() -> Result<(), errors::Error> {
         }
 
         Commands::Password { ref action } => passwords::run(action, &args),
-
-        Commands::Update {
+        /*Commands::Update {
             from,
             into,
             passwords,
@@ -560,6 +557,6 @@ fn main() -> Result<(), errors::Error> {
             }
 
             Ok(())
-        }
+        }*/
     }
 }
