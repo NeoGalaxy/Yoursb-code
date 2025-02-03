@@ -2,7 +2,7 @@
 
 use std::{io, path::PathBuf};
 
-use crate::passwords::PasswordError;
+// use crate::passwords::PasswordError;
 
 /// Type enumerating all the possible errors
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub enum Error {
     /// The key was invalid, the file was probably encrypted using another key
     InvalidKeyError,
     NoKey,
-    Password(PasswordError),
+    // Password(PasswordError),
     NoRepo,
     NoConfigDir,
     NoLocalProj,
@@ -24,11 +24,11 @@ pub enum Error {
     Abort,
 }
 
-impl From<PasswordError> for Error {
-    fn from(value: PasswordError) -> Self {
-        Error::Password(value)
-    }
-}
+// impl From<PasswordError> for Error {
+//     fn from(value: PasswordError) -> Self {
+//         Error::Password(value)
+//     }
+// }
 
 /// Macro to call the [`YoursbError::convert`] function seemlessly
 #[macro_export]

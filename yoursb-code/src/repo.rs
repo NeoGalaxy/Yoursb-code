@@ -4,17 +4,12 @@ use std::{
     env::current_dir,
     ffi::OsStr,
     fmt::Display,
-    fs::{self, read_dir, Permissions},
-    io::Write,
+    fs::read_dir,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use crate::{
-    _try,
-    errors::{self, YoursbError},
-    InputFilePosArg, OutputFilePosArg,
-};
+use crate::{_try, errors, InputFilePosArg, OutputFilePosArg};
 
 /// The name of the directory in which everything is stored when in a local dir
 pub const LOCAL_REPO_SUBDIR: &str = ".yoursbcode";
@@ -30,10 +25,11 @@ pub const FILES_DIR: &str = "files";
 
 /// A datastructure meant to designate if we use the global repo or a local one.
 /// It implements [`FromStr`] with as format either `global`, `local` or `local:<path>`.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum RepoPath {
-    Local(Option<PathBuf>),
+    #[default]
     Global,
+    Local(Option<PathBuf>),
 }
 
 /// A file position in the CLI. Either inside the instance or a path from current dir
@@ -110,6 +106,16 @@ impl FromStr for RepoPath {
     }
 }
 
+impl Display for RepoPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RepoPath::Local(None) => write!(f, "local"),
+            RepoPath::Local(Some(path_buf)) => write!(f, "local: {}", path_buf.display()),
+            RepoPath::Global => write!(f, "global"),
+        }
+    }
+}
+
 impl RepoPath {
     pub fn find(&self) -> Result<PathBuf, errors::Error> {
         match self {
@@ -136,18 +142,6 @@ impl RepoPath {
     }
 }
 
-/// Runs [`find_parent_repo`] followed by [`find_config_repo`], searching
-/// for the first repo it can find.
-///
-/// Returns `Some(repo)` if a repo is found, and `None` otherwise
-///
-/// May error saying that the current directory can't be accessed.
-pub fn find_repo() -> Result<PathBuf, errors::Error> {
-    find_local_repo()?
-        .or_else(find_global_repo)
-        .ok_or(errors::Error::NoRepo)
-}
-
 /// Seaches for a repo in the current dir and all its parents. Returns `Err(...)` if there's
 /// an issue knowing the current directory, and returns `Ok(None)` if no repo was found.
 ///
@@ -158,7 +152,7 @@ pub fn find_local_repo() -> Result<Option<PathBuf>, errors::Error> {
 
     for parent in dir.ancestors() {
         let path = parent.join(LOCAL_REPO_SUBDIR);
-        if path.exists() {
+        if let Ok(path) = path.canonicalize() {
             return Ok(Some(path));
         }
     }
@@ -212,19 +206,19 @@ pub fn find_elements<'a>(
         .map(move |e| e.map(|name| root.join(dir2.join(name)))))
 }
 
-pub(crate) fn write_embedded_execs(instance_dir: &Path) -> Result<(), errors::Error> {
-    // let windows = include_bytes!("../embedded_execs/windows.exe");
-    let linux = include_bytes!("../embedded_execs/linux");
-    // let osx = include_bytes!();
-    let mut file =
-        _try!([instance_dir.join("linux.bin")] fs::File::create(instance_dir.join("linux.bin")));
-    _try!([instance_dir.join("linux.bin")] file.write_all(linux));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = Permissions::from_mode(0o755);
-        _try!([instance_dir.join("linux.bin")] file.set_permissions(perms));
-    }
-    _try!([instance_dir.join("VERSION")] fs::write(instance_dir.join("VERSION"), "EMBEDDED_VERSION"));
-    Ok(())
-}
+// pub(crate) fn write_embedded_execs(instance_dir: &Path) -> Result<(), errors::Error> {
+//     // let windows = include_bytes!("../embedded_execs/windows.exe");
+//     let linux = include_bytes!("../embedded_execs/linux");
+//     // let osx = include_bytes!();
+//     let mut file =
+//         _try!([instance_dir.join("linux.bin")] fs::File::create(instance_dir.join("linux.bin")));
+//     _try!([instance_dir.join("linux.bin")] file.write_all(linux));
+//     #[cfg(unix)]
+//     {
+//         use std::os::unix::fs::PermissionsExt;
+//         let perms = Permissions::from_mode(0o755);
+//         _try!([instance_dir.join("linux.bin")] file.set_permissions(perms));
+//     }
+//     _try!([instance_dir.join("VERSION")] fs::write(instance_dir.join("VERSION"), "EMBEDDED_VERSION"));
+//     Ok(())
+// }

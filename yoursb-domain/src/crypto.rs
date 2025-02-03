@@ -1,6 +1,6 @@
 //! module to encrypt the data
 
-use argon2::Argon2;
+use argon2::{password_hash::SaltString, Argon2};
 use chacha20poly1305::{
     aead::{
         self,
@@ -9,9 +9,11 @@ use chacha20poly1305::{
     },
     XChaCha20Poly1305,
 };
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, Rng, RngCore};
 
-use crate::interfaces::{CryptedEncryptionKey, EncryptionKey};
+use crate::interfaces::{
+    CryptedEncryptionKey, EncryptionKey, InitInstanceContext, CRYPTED_ENCRYPTION_KEY_SIZE,
+};
 
 pub const BUFFER_LEN: usize = 500;
 pub const TAG_SIZE: usize = 16;
@@ -74,6 +76,30 @@ pub fn decrypt_key(
     Ok(key
         .into_array()
         .expect("the decrypted key size is invalid (not 32)"))
+}
+
+pub fn create_key(pass: impl AsRef<str>, ctx: &impl InitInstanceContext) -> CryptedEncryptionKey {
+    let salt = SaltString::generate(ctx.salt_rng());
+    let mut pass_hash = [0; 32];
+    Argon2::default()
+        .hash_password_into(
+            pass.as_ref().as_bytes(),
+            salt.as_str().as_bytes(),
+            &mut pass_hash,
+        )
+        .unwrap();
+
+    let decrypted: [u8; 32] = ctx.key_rng().gen();
+    let key: Vec<u8, CRYPTED_ENCRYPTION_KEY_SIZE> =
+        Encrypter::new(decrypted.as_slice(), &pass_hash)
+            .unwrap()
+            .flat_map(|x| x.unwrap())
+            .collect();
+
+    CryptedEncryptionKey {
+        key: key.into_array().unwrap(),
+        salt,
+    }
 }
 
 #[derive(Debug)]

@@ -5,18 +5,20 @@ use alloc::{string::String, vec::Vec};
 use rand::{distributions::Uniform, rngs::OsRng, Rng};
 
 use crate::{
-    crypto::{decrypt_key, Decrypter, Encrypter},
+    crypto::{create_key, decrypt_key, Decrypter, Encrypter},
     interfaces::{
         indicate, CharsDist, Context, DecryptedFile, DecryptedPassword, ElementId, FileLeaf,
         FilePath, InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf,
     },
 };
 
-// pub struct Commands<Ctx>(PhantomData<Ctx>);
+#[derive(Debug)]
 pub struct Commands<Ctx>(pub Ctx);
+
+#[derive(Debug)]
 pub struct InstanceCommands<'ctx, Ctx: Context> {
-    ctx: &'ctx Commands<Ctx>,
-    instance: Ctx::Instance,
+    pub ctx: &'ctx Commands<Ctx>,
+    pub instance: Ctx::Instance,
 }
 
 impl<Ctx: Context> Commands<Ctx> {
@@ -38,7 +40,6 @@ impl<Ctx: Context> Commands<Ctx> {
             instance: Ctx::Instance::open(loc)?,
         })
     }
-    //locate
 }
 
 impl<Ctx: Context> InstanceCommands<'_, Ctx> {
@@ -163,6 +164,9 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let password = match password {
             NewPasswordDetails::Known(pass) => pass,
+            NewPasswordDetails::Prompt => {
+                todo!()
+            }
             NewPasswordDetails::Random { len, allowed_chars } => {
                 indicate!(
                     &self.ctx.0,
@@ -228,7 +232,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
     pub fn get_password(
         &mut self,
-        id: ElementId<Ctx, true>,
+        id: Ctx::FileLeaf<true>,
     ) -> Result<DecryptedPassword<Ctx>, Ctx::Error> {
         let encrypted_key = self.instance.get_key()?;
         let passphrase = self
@@ -238,7 +242,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
-        let encrypted_content = self.instance.get_element(&id.0)?;
+        let encrypted_content = self.instance.get_element(&id)?;
 
         let content: Vec<u8> = Decrypter::new(encrypted_content.as_slice(), &key)
             .unwrap()
@@ -250,7 +254,10 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             Err(e) => todo!("serde error: {}", e),
         };
 
-        Ok(DecryptedPassword { id, value })
+        Ok(DecryptedPassword {
+            id: ElementId(id),
+            value,
+        })
     }
 
     pub fn encrypt_file(
@@ -302,17 +309,36 @@ impl<Ctx: InitInstanceContext> Commands<Ctx> {
     pub fn init_intance(
         &self,
         path: Ctx::InstanceLoc,
+        passphrase: Option<&str>,
     ) -> Result<InstanceCommands<Ctx>, Ctx::Error> {
+        indicate!(&self.0, "Creating a new YourSBCode instance at {path}.");
+        let mut binding = None;
+        let passphrase = passphrase.unwrap_or_else(|| {
+            binding = Some(
+                self.0
+                    .prompt_secret("Please create a master passphrase for the instance:"),
+            );
+            binding.as_ref().unwrap().as_ref()
+        });
+        let key = create_key(passphrase, &self.0);
         Ok(InstanceCommands {
             ctx: self,
-            instance: Ctx::new_instance(path)?,
+            instance: Ctx::new_instance(path, key)?,
         })
     }
 }
 
 impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx> {
-    pub fn del_intance(self) -> Result<(), Ctx::Error> {
-        self.instance.delete()
+    pub fn del_intance(self) -> Result<(), (Ctx::Error, Self)> {
+        self.instance.delete().map_err(|(err, i)| {
+            (
+                err,
+                Self {
+                    ctx: self.ctx,
+                    instance: i,
+                },
+            )
+        })
         // TODO: put Instance.delete in init ?
     }
 }
@@ -349,7 +375,7 @@ mod tests {
         println!("{new_pass:?}");
 
         let found_pass = commands
-            .get_password(ElementId(PathBufLeaf(PathBuf::from("hello"))))
+            .get_password(PathBufLeaf(PathBuf::from("hello")))
             .unwrap();
         println!("{found_pass:?}");
         assert_eq!(
@@ -386,7 +412,12 @@ mod tests {
     #[test]
     fn test_create_delete_instance() {
         let ctx = Commands::new(TestCtx);
-        let mut commands = ctx.init_intance("tests/instances/tmp".to_string()).unwrap();
+        let mut commands = ctx
+            .init_intance(
+                "tests/instances/tmp".to_string(),
+                Some(TestCtx::INSTANCE_PASS),
+            )
+            .unwrap();
 
         let new_file = DecryptedFile {
             id: ElementId(PathBufLeaf(PathBuf::from("hello_world"))),

@@ -1,7 +1,7 @@
 use core::fmt::{Debug, Display};
 
 use alloc::string::String;
-use argon2::password_hash::SaltString;
+use argon2::password_hash::rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 macro_rules! indicate {
@@ -13,9 +13,12 @@ pub(crate) use indicate;
 
 use crate::crypto::{NONCE_SIZE, TAG_SIZE};
 
+pub use argon2::password_hash::SaltString;
+
 pub type EncryptionKey = [u8; 32];
 pub const CRYPTED_ENCRYPTION_KEY_SIZE: usize = 32 + TAG_SIZE + NONCE_SIZE;
-#[derive(Clone)]
+
+#[derive(Clone, Debug)]
 pub struct CryptedEncryptionKey {
     pub key: [u8; CRYPTED_ENCRYPTION_KEY_SIZE],
     pub salt: SaltString,
@@ -43,7 +46,13 @@ pub trait Context: Sized {
 }
 
 pub trait InitInstanceContext: Context {
-    fn new_instance(path: Self::InstanceLoc) -> Result<Self::Instance, Self::Error>;
+    fn new_instance(
+        path: Self::InstanceLoc,
+        key: CryptedEncryptionKey,
+    ) -> Result<Self::Instance, Self::Error>;
+
+    fn key_rng(&self) -> impl CryptoRngCore;
+    fn salt_rng(&self) -> impl CryptoRngCore;
 }
 
 pub trait Instance<Ctx: Context>: Sized {
@@ -52,7 +61,7 @@ pub trait Instance<Ctx: Context>: Sized {
     fn open(loc: Ctx::InstanceLoc) -> Result<Self, Ctx::Error>;
 
     fn get_key(&mut self) -> Result<CryptedEncryptionKey, Ctx::Error>;
-    fn set_key(&mut self, key: CryptedEncryptionKey) -> Result<(), Ctx::Error>;
+    // fn set_key(&mut self, key: CryptedEncryptionKey) -> Result<(), Ctx::Error>;
 
     fn get_element<const IS_PASSWORD: bool>(
         &self,
@@ -70,7 +79,7 @@ pub trait Instance<Ctx: Context>: Sized {
         content: alloc::vec::Vec<u8>,
     ) -> Result<(), Ctx::Error>;
 
-    fn delete(self) -> Result<(), Ctx::Error>;
+    fn delete(self) -> Result<(), (Ctx::Error, Self)>;
 }
 
 pub trait FilePath<const IS_PASSWORD: bool>: Clone {
@@ -107,6 +116,7 @@ pub trait CharsDist {
 }
 
 pub enum NewPasswordDetails<Ctx: Context> {
+    Prompt,
     Known(String),
     Random {
         len: u16,

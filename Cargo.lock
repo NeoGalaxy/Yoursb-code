@@ -1348,6 +1348,7 @@ dependencies = [
  "serde",
  "serde_json",
  "walkdir",
+ "yoursb-domain",
 ]
 
 [[package]]

@@ -6,32 +6,19 @@
 //! Note: the password is not directly used to encrypt everything, a random key is used
 //! instead, itself encrypted with the password.
 
-pub mod crypto;
+pub mod cli_ctx;
 pub mod errors;
-pub mod key;
-pub mod passwords;
 pub mod repo;
 
-use passwords::CharsDist;
-use repo::{find_repo, write_embedded_execs, FilePos, RepoPath, KEY_NAME};
-use std::{
-    fs::{self, create_dir_all, remove_dir_all},
-    io::{stdin, Read},
-    path::{Path, PathBuf},
-};
-use walkdir::WalkDir;
+use std::io::{stdin, Read};
+use std::path::PathBuf;
 
 use clap::Parser;
 use clap::{Args, Subcommand};
-
-use crate::{
-    crypto::{decrypt_from, encrypt_to},
-    key::ask_passphase,
-    passwords::PASSWORD_DIR,
-    repo::FILES_DIR,
-};
-
-const EMBEDDED_VERSION: f64 = 0.1;
+use cli_ctx::{CliCharDist, CliCtx, CliInstance, PathBufLeaf, PathBufPath};
+use repo::RepoPath;
+use yoursb_domain::commands as domain_cmd;
+use yoursb_domain::interfaces::{Instance, NewPasswordDetails};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -49,8 +36,8 @@ pub struct Cli {
     /// * "global" will indicate to use a global instance of YourSBCode
     ///
     /// * "local" will indicate to look in the current directory and its parents
-    /// searching for a local directory. For the command "init", local will indicate
-    /// to initialize the instance in the current directory
+    ///   searching for a local directory. For the command "init", local will indicate
+    ///   to initialize the instance in the current directory
     ///
     /// * "local:<PATH>" will indicate to look at the instance located at PATH
     ///
@@ -213,7 +200,7 @@ pub enum PasswordAction {
         /// the end. Spaces are allowed anywhere except in a range and will not
         /// be in the password.
         #[arg(short, long, default_value = "a..z A..Z !#$%&'*+,-./:;<>=?@^_`|~")]
-        allowed_chars: CharsDist,
+        allowed_chars: CliCharDist,
 
         /// If the password is randomly generated, YourSBCode will by default
         /// copy it into your clipboard. To prevent this behavior, use this option.
@@ -277,286 +264,106 @@ pub enum FileAction {
     },
 }
 
-fn main() -> Result<(), errors::Error> {
+fn main() /* -> Result<(), errors::Error>*/
+{
     let args = Cli::parse();
+
+    let ctx = domain_cmd::Commands::new(CliCtx);
 
     match args.command {
         Commands::Init { location, embedded } => {
-            let instance = location.or(args.instance).unwrap_or(RepoPath::Global);
-            match &instance {
-                RepoPath::Local(path) => {
-                    println!("Creating YourSBCode instance in dir {path:?}")
-                }
-                RepoPath::Global => println!("Creating global YourSBCode instance"),
-            }
-            let instance_dir = instance.get_path()?;
-
-            let keypath = instance_dir.join(KEY_NAME);
-            if keypath.exists() {
-                return Err(errors::Error::RepoAlreadyExists);
-            }
-
-            if let Some(p) = keypath.parent() {
-                let _ = create_dir_all(p);
-            }
-
-            key::new_key(&keypath)?;
-
             if embedded {
-                repo::write_embedded_execs(&instance_dir)?;
+                todo!()
             }
-
-            Ok(())
+            ctx.init_intance(location.or(args.instance).unwrap_or_default(), None)
+                .unwrap();
         }
-
         Commands::Locate => {
-            let instance_path = args
-                .instance
-                .clone()
-                .map(|p| p.find())
-                .unwrap_or_else(find_repo);
+            let current = CliInstance::locate();
+            let new_instance_loc = args.instance.unwrap_or_default();
 
-            let new_instance_path = args.instance.unwrap_or(RepoPath::Global).get_path()?;
+            println!("The current instance is located at {current}");
+            // match current {
+            //     Ok(current) => println!("The current instance is located at {current:?}"),
+            //     Err(e) => println!("No current instance has been found: {e:?}"),
+            // }
 
-            match instance_path {
-                Ok(path) => println!("The current instance is located at {path:?}"),
-                Err(e) => println!("No current instance has been found: {e:?}"),
-            }
-
-            println!("The attempt of instance creation would be at {new_instance_path:?}");
-
-            Ok(())
+            println!("The attempt of instance creation would be at {new_instance_loc}");
         }
-
+        Commands::Clear => todo!(),
+        Commands::Embedded { location, force } => todo!(),
         Commands::Delete { force } => {
-            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
+            let instance = ctx.get_instance(args.instance).unwrap();
             if !force {
-                println!("This will delete all the content of directory {instance_path:?}.");
+                println!(
+                    "This will delete all the content of directory {:?}.",
+                    instance.instance.root
+                );
                 println!("Are you sure? (Y/n)");
                 let mut buf = [0];
                 stdin()
                     .read_exact(&mut buf)
-                    .map_err(errors::Error::ConsoleError)?;
+                    .map_err(errors::Error::ConsoleError)
+                    .unwrap();
                 if (buf[0] as char).to_ascii_lowercase() != 'y' {
-                    return Err(errors::Error::Abort);
+                    panic!("{:?}", errors::Error::Abort)
                 }
             }
-
-            _try!(remove_dir_all(&instance_path), [instance_path]);
-            Ok(())
+            instance.del_intance().unwrap();
         }
-
-        Commands::Clear => {
-            arboard::Clipboard::new()?.set_text("")?;
-            println!("Successfully cleared clipboard");
-            Ok(())
-        }
-        Commands::Embedded { location, force } => {
-            let instance_dir = location.get_path()?;
-            println!("Updating instance at {instance_dir:?}...");
-            if let Ok(version) = fs::read_to_string(instance_dir.join("VERSION")) {
-                if !force && version.parse::<f64>().is_ok_and(|v| v > EMBEDDED_VERSION) {
-                    println!(
-                        "Can't reinstall embedded instance: \
-                        embedded instance is more recent than the local version."
-                    );
-                    println!("To force, re-run with the `--force` option.");
-                    return Ok(());
-                }
-            }
-            println!("Done");
-            write_embedded_execs(&instance_dir)?;
-            Ok(())
-        }
-
-        Commands::File { action } => {
+        Commands::Password { action } => {
+            let mut instance = ctx.get_instance(args.instance).unwrap();
             match action {
-                FileAction::Encrypt { file, output } => {
-                    let output: FilePos = output.clone().into();
-                    let input = _try!(fs::File::open(&file), [file.to_owned()]);
-                    let bytes = input.bytes().map(|e| e.unwrap()); // TODO
+                PasswordAction::Create {
+                    identifier,
+                    data,
+                    prompt,
+                    len,
+                    allowed_chars,
+                    no_copy,
+                } => {
+                    // TODO: check exists?
 
-                    let instance_path =
-                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-                    let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
-
-                    let output = output.to_path(&instance_path);
-
-                    crypto::encrypt_to(bytes, &output, (&key).into())
+                    instance
+                        .new_password(
+                            PathBufLeaf(identifier.into()),
+                            data,
+                            if prompt {
+                                NewPasswordDetails::Prompt
+                            } else {
+                                NewPasswordDetails::Random { len, allowed_chars }
+                            },
+                        )
+                        .unwrap();
+                    // TODO: copy
                 }
-
-                FileAction::Decrypt { input, output } => {
-                    let input: FilePos = input.clone().into();
-
-                    let instance_path =
-                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-                    let key = key::unlock_key(&instance_path.join(KEY_NAME))?;
-
-                    let input = input.to_path(&instance_path);
-
-                    let decrypted = crypto::decrypt_from(&input, (&key).into())?;
-                    _try!(fs::write(&output, decrypted), [output.to_owned()]);
-                    Ok(())
+                PasswordAction::Get { identifier } => {
+                    instance.get_password(PathBufLeaf(identifier.into()));
                 }
-                FileAction::List { prefix } => {
-                    let instance_path =
-                        args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-                    repo::find_elements(&instance_path.join(FILES_DIR), &prefix)?.for_each(|e| {
-                        if let Ok(p) = e {
-                            println!("{p:?}");
-                        }
-                    });
-                    Ok(())
+                PasswordAction::List { prefix } => {
+                    instance.list_content::<false>(
+                        PathBufPath(instance.instance.root.to_owned()),
+                        &prefix,
+                    );
                 }
-                FileAction::Delete { identifier } => {
+                PasswordAction::Delete { identifier } => {
                     todo!()
                 }
             }
         }
-
-        Commands::Password { ref action } => passwords::run(action, &args),
-        /*Commands::Update {
-            from,
-            into,
-            passwords,
-            files,
-            no_reuse_passphrase,
-        } => {
-            println!("Finding instances...");
-
-            let instance_path = args.instance.map(|p| p.find()).unwrap_or_else(find_repo)?;
-
-            let (source, dest, source_is_remote) = if let Some(source) = from {
-                let source_path = source.find()?;
-                (source_path, instance_path, true)
-            } else if let Some(dest) = into {
-                let dest_path = dest.find()?;
-                (instance_path, dest_path, false)
-            } else {
-                unreachable!()
-            };
-
-            println!();
-            println!("Copying from:");
-            println!("{source:?}");
-            println!("to:");
-            println!("{dest:?}");
-            println!();
-
-            let (source_key, dest_key);
-
-            let get_keys = |current: &Path, remote: &Path| -> Result<_, errors::Error> {
-                println!("Unlocking current instance key (at {current:?})...");
-                let passphrase = ask_passphase()?;
-                let current_key = key::unlock_key_with(&current.join(KEY_NAME), &passphrase)?;
-                println!("Passphrase valid.");
-
-                println!("Unlocking remote instance key (at {remote:?})...");
-                let keypath = &remote.join(KEY_NAME);
-                let res = if !no_reuse_passphrase {
-                    key::unlock_key_with(keypath, &passphrase).ok()
-                } else {
-                    None
-                };
-                let remote_key = match res {
-                    Some(k) => {
-                        println!("Passphrase valid.");
-                        k
-                    }
-                    None => key::unlock_key(keypath)?,
-                };
-                Ok((current_key, remote_key))
-            };
-            if source_is_remote {
-                (dest_key, source_key) = get_keys(&dest, &source)?;
-            } else {
-                (source_key, dest_key) = get_keys(&source, &dest)?;
-            };
-
-            let copy_dir = |subdir| {
-                if !source.join(subdir).exists() {
-                    println!("Nothing in {subdir}.");
-                    return;
-                };
-                if !dest.join(subdir).exists() {
-                    if let Err(e) = create_dir_all(dest.join(subdir)) {
-                        eprintln!("ERROR: {e}");
-                    }
-                    return;
-                }
-                for entry in WalkDir::new(source.join(subdir)) {
-                    let entry: PathBuf = match entry {
-                        Ok(e) => e.into_path(),
-                        Err(err) => {
-                            eprintln!("ERROR: {err}");
-                            continue;
-                        }
-                    };
-
-                    if entry.is_dir() {
-                        eprintln!(
-                            "- Entering {:?}",
-                            entry
-                                .strip_prefix(source.clone())
-                                .expect("Internal error: entry isn't in source;")
-                        );
-                        continue;
-                    }
-
-                    if !entry.is_file() {
-                        eprintln!("ERROR: entry {entry:?} is neither a directory nor a file");
-                        continue;
-                    }
-
-                    let decrypted = match decrypt_from(&entry, (&source_key).into()) {
-                        Ok(d) => d,
-                        Err(err) => {
-                            eprintln!("DECRYPTING ERROR: {err:?}");
-                            continue;
-                        }
-                    };
-
-                    let dest_file = dest.join(
-                        entry
-                            .strip_prefix(source.clone())
-                            .expect("Internal error: entry isn't in source;"),
+        Commands::File { action } => {
+            let instance = ctx.get_instance(args.instance).unwrap();
+            match action {
+                FileAction::Encrypt { file, output } => todo!(),
+                FileAction::Decrypt { input, output } => todo!(),
+                FileAction::List { prefix } => {
+                    instance.list_content::<true>(
+                        PathBufPath(instance.instance.root.to_owned()),
+                        &prefix,
                     );
-                    match encrypt_to(decrypted.into_iter(), &dest_file, (&dest_key).into()) {
-                        Ok(()) => {
-                            eprintln!(
-                                "- Copied {:?}",
-                                entry
-                                    .strip_prefix(source.clone())
-                                    .expect("Internal error: entry isn't in source;")
-                            );
-                        }
-                        Err(err) => {
-                            eprintln!("DECRYPTING ERROR: {err:?}");
-                        }
-                    }
                 }
-            };
-            println!();
-            if passwords || !files {
-                println!("Copying passwords...");
-                copy_dir(PASSWORD_DIR);
-            } else {
-                println!("Skipped passwords");
+                FileAction::Delete { identifier } => todo!(),
             }
-
-            println!();
-            if files || !passwords {
-                println!("Copying regular files...");
-                copy_dir(FILES_DIR);
-            } else {
-                println!("Skipped regular files");
-            }
-
-            Ok(())
-        }*/
+        }
     }
 }

@@ -9,7 +9,11 @@ use std::{
     println,
 };
 
-use argon2::{password_hash::SaltString, Argon2};
+use argon2::{
+    password_hash::{rand_core::CryptoRngCore, SaltString},
+    Argon2,
+};
+use rand::rngs::OsRng;
 
 use crate::{
     crypto::Encrypter,
@@ -22,6 +26,11 @@ use crate::{
 #[derive(Debug)]
 pub struct TestCtx;
 
+impl TestCtx {
+    pub const INSTANCE_PASS: &str = "blblbl";
+}
+
+#[derive(Debug)]
 pub struct TestInstance {
     root: PathBuf,
     key: CryptedEncryptionKey,
@@ -33,8 +42,6 @@ impl TestInstance {
             .join(path)
     }
 }
-
-const INSTANCE_PASS: &str = "blblbl";
 
 pub struct TestCDist;
 
@@ -61,7 +68,7 @@ impl Context for TestCtx {
     {
         println!("[prompt_secret] {prompt}");
         if prompt.to_string().contains("instance") {
-            let pass = INSTANCE_PASS;
+            let pass = Self::INSTANCE_PASS;
             println!(">> return passphrase: {pass}");
             pass.to_string()
         } else {
@@ -82,9 +89,19 @@ impl Context for TestCtx {
 impl InitInstanceContext for TestCtx {
     fn new_instance(
         path: Self::InstanceLoc,
+        key: CryptedEncryptionKey,
     ) -> Result<Self::Instance, <TestCtx as Context>::Error> {
         let _ = create_dir_all(&path);
-        Ok(Self::Instance::open(path).unwrap())
+        Ok(TestInstance {
+            root: path.into(),
+            key,
+        })
+    }
+    fn key_rng(&self) -> impl CryptoRngCore {
+        OsRng
+    }
+    fn salt_rng(&self) -> impl CryptoRngCore {
+        OsRng
     }
 }
 
@@ -98,7 +115,7 @@ impl Instance<TestCtx> for TestInstance {
 
         let decrypted = [1u8; 32];
 
-        let pass = INSTANCE_PASS;
+        let pass = TestCtx::INSTANCE_PASS;
         let salt = SaltString::from_b64("saltyhehe").unwrap();
         let mut pass_hash = [0; 32];
         Argon2::default()
@@ -126,14 +143,6 @@ impl Instance<TestCtx> for TestInstance {
         &mut self,
     ) -> Result<crate::interfaces::CryptedEncryptionKey, <TestCtx as Context>::Error> {
         Ok(self.key.clone())
-    }
-
-    fn set_key(
-        &mut self,
-        key: crate::interfaces::CryptedEncryptionKey,
-    ) -> Result<(), <TestCtx as Context>::Error> {
-        self.key = key;
-        Ok(())
     }
 
     fn get_element<const IS_PASSWORD: bool>(
@@ -187,7 +196,7 @@ impl Instance<TestCtx> for TestInstance {
         Ok(())
     }
 
-    fn delete(self) -> Result<(), <TestCtx as Context>::Error> {
+    fn delete(self) -> Result<(), (<TestCtx as Context>::Error, Self)> {
         let _ = fs::remove_dir_all(self.root);
         Ok(())
     }
