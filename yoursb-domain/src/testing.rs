@@ -1,9 +1,11 @@
-#![cfg(test)]
+#![cfg(all(test, feature = "std"))]
 
+use core::iter;
 use std::{
     dbg,
     fmt::Display,
     fs::{self, create_dir_all, read_dir},
+    io::Write as _,
     path::{Path, PathBuf},
     prelude::rust_2021::*,
     println,
@@ -13,10 +15,11 @@ use argon2::{
     password_hash::{rand_core::CryptoRngCore, SaltString},
     Argon2,
 };
+use chacha20poly1305::aead::heapless;
 use rand::rngs::OsRng;
 
 use crate::{
-    crypto::Encrypter,
+    crypto::{Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
         Instance, PathOrLeaf, CRYPTED_ENCRYPTION_KEY_SIZE,
@@ -56,6 +59,7 @@ impl Context for TestCtx {
 
     type CharsDist = TestCDist;
 
+    type FileRead = std::fs::File;
     type Error = ();
 
     fn indicate<T: core::fmt::Display>(&self, val: T) {
@@ -122,9 +126,17 @@ impl Instance<TestCtx> for TestInstance {
             .hash_password_into(pass.as_bytes(), salt.as_str().as_bytes(), &mut pass_hash)
             .unwrap();
 
-        let key: Vec<u8> = Encrypter::new(decrypted.as_slice(), &pass_hash)
-            .unwrap()
-            .flat_map(|x| x.unwrap())
+        let mut encrypter = Encrypter::new(decrypted.as_slice(), &pass_hash).unwrap();
+        let key: Vec<u8> = iter::repeat(())
+            .map(|()| {
+                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
+                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
+                let read_size = encrypter.read(&mut buf).unwrap();
+                buf.truncate(read_size);
+                buf
+            })
+            .take_while(|b| !b.is_empty())
+            .flatten()
             .collect();
 
         assert_eq!(key.len(), CRYPTED_ENCRYPTION_KEY_SIZE);
@@ -148,9 +160,9 @@ impl Instance<TestCtx> for TestInstance {
     fn get_element<const IS_PASSWORD: bool>(
         &self,
         path: &<TestCtx as Context>::FileLeaf<IS_PASSWORD>,
-    ) -> Result<std::vec::Vec<u8>, <TestCtx as Context>::Error> {
+    ) -> Result<<TestCtx as Context>::FileRead, <TestCtx as Context>::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
-        Ok(fs::read(path).unwrap())
+        Ok(fs::File::open(path).unwrap())
     }
 
     fn list_content<const IS_PASSWORD: bool>(
@@ -183,16 +195,26 @@ impl Instance<TestCtx> for TestInstance {
         }
     }
 
-    fn write_element<const IS_PASSWORD: bool>(
+    fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &<TestCtx as Context>::FileLeaf<IS_PASSWORD>,
-        content: std::vec::Vec<u8>,
+        mut content: R,
     ) -> Result<(), <TestCtx as Context>::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        fs::write(path, content).unwrap();
+
+        let mut buffer = [0u8; BUFFER_LEN + TAG_SIZE];
+        let mut file = fs::File::create(path).unwrap();
+        loop {
+            let nb_read = match content.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(v) => v,
+                Err(_err) => panic!("blblblbl"),
+            };
+            file.write_all(&buffer[..nb_read]).unwrap();
+        }
         Ok(())
     }
 

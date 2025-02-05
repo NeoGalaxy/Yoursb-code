@@ -11,7 +11,7 @@ macro_rules! indicate {
 }
 pub(crate) use indicate;
 
-use crate::crypto::{NONCE_SIZE, TAG_SIZE};
+use crate::crypto::{YsbcRead, NONCE_SIZE, TAG_SIZE};
 
 pub use argon2::password_hash::SaltString;
 
@@ -37,6 +37,7 @@ pub trait Context: Sized {
     type InstanceLoc: Display;
     type CharsDist: CharsDist;
 
+    type FileRead: YsbcRead;
     type Error;
 
     fn indicate<T: Display>(&self, val: T);
@@ -66,17 +67,17 @@ pub trait Instance<Ctx: Context>: Sized {
     fn get_element<const IS_PASSWORD: bool>(
         &self,
         path: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> Result<alloc::vec::Vec<u8>, Ctx::Error>;
+    ) -> Result<Ctx::FileRead, Ctx::Error>;
 
     fn list_content<const IS_PASSWORD: bool>(
         &self,
         directory: Ctx::FilePath<IS_PASSWORD>,
     ) -> Result<impl Iterator<Item = Result<PathOrLeaf<Ctx, IS_PASSWORD>, Ctx::Error>>, Ctx::Error>;
 
-    fn write_element<const IS_PASSWORD: bool>(
+    fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &Ctx::FileLeaf<IS_PASSWORD>,
-        content: alloc::vec::Vec<u8>,
+        content: R,
     ) -> Result<(), Ctx::Error>;
 
     fn delete(self) -> Result<(), (Ctx::Error, Self)>;
@@ -139,9 +140,9 @@ pub struct DecryptedPassword<Ctx: Context> {
 }
 
 #[derive(Debug)]
-pub struct DecryptedFile<Ctx: Context> {
+pub struct DecryptedFile<Ctx: Context, R: YsbcRead> {
     pub id: ElementId<Ctx, false>,
-    pub content: alloc::vec::Vec<u8>,
+    pub content: R,
 }
 
 #[derive(Debug)]

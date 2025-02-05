@@ -338,13 +338,17 @@ fn main() /* -> Result<(), errors::Error>*/
                     // TODO: copy
                 }
                 PasswordAction::Get { identifier } => {
-                    instance.get_password(PathBufLeaf(identifier.into()));
+                    let password = instance
+                        .get_password(PathBufLeaf(identifier.into()))
+                        .unwrap();
+                    todo!("{:?}", password)
                 }
                 PasswordAction::List { prefix } => {
-                    instance.list_content::<false>(
+                    let _content = instance.list_content::<true>(
                         PathBufPath(instance.instance.root.to_owned()),
                         &prefix,
                     );
+                    todo!()
                 }
                 PasswordAction::Delete { identifier } => {
                     todo!()
@@ -357,10 +361,11 @@ fn main() /* -> Result<(), errors::Error>*/
                 FileAction::Encrypt { file, output } => todo!(),
                 FileAction::Decrypt { input, output } => todo!(),
                 FileAction::List { prefix } => {
-                    instance.list_content::<true>(
+                    let _content = instance.list_content::<false>(
                         PathBufPath(instance.instance.root.to_owned()),
                         &prefix,
                     );
+                    todo!()
                 }
                 FileAction::Delete { identifier } => todo!(),
             }

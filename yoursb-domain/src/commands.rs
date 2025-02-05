@@ -1,11 +1,12 @@
 use alloc::vec;
-use core::ops::RangeInclusive;
+use chacha20poly1305::aead::heapless;
+use core::{iter, ops::RangeInclusive};
 
 use alloc::{string::String, vec::Vec};
 use rand::{distributions::Uniform, rngs::OsRng, Rng};
 
 use crate::{
-    crypto::{create_key, decrypt_key, Decrypter, Encrypter},
+    crypto::{create_key, decrypt_key, Decrypter, Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         indicate, CharsDist, Context, DecryptedFile, DecryptedPassword, ElementId, FileLeaf,
         FilePath, InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf,
@@ -217,12 +218,21 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             Err(e) => todo!("serde error: {}", e),
         };
 
-        let encrypted_content: Vec<u8> = Encrypter::new(content.as_bytes(), &key)
-            .unwrap()
-            .flat_map(|b| b.unwrap())
+        let mut encrypter = Encrypter::new(content.as_bytes(), &key).unwrap();
+        let encrypted_content: Vec<u8> = iter::repeat(())
+            .map(|()| {
+                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
+                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
+                let read_size = encrypter.read(&mut buf).unwrap();
+                buf.truncate(read_size);
+                buf
+            })
+            .take_while(|b| !b.is_empty())
+            .flatten()
             .collect();
 
-        self.instance.write_element(&id, encrypted_content)?;
+        self.instance
+            .write_element(&id, encrypted_content.as_slice())?;
 
         Ok(DecryptedPassword {
             id: ElementId(id),
@@ -244,14 +254,26 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let encrypted_content = self.instance.get_element(&id)?;
 
-        let content: Vec<u8> = Decrypter::new(encrypted_content.as_slice(), &key)
-            .unwrap()
-            .flat_map(|b| b.unwrap())
+        let mut decrypter = Decrypter::new(encrypted_content, &key).ok().unwrap();
+        let content: Vec<u8> = iter::repeat(())
+            .map(|()| {
+                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
+                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
+                let read_size = decrypter.read(&mut buf).ok().unwrap();
+                buf.truncate(read_size);
+                buf
+            })
+            .take_while(|b| !b.is_empty())
+            .flatten()
             .collect();
 
         let value = match serde_json::from_slice(&content) {
             Ok(c) => c,
-            Err(e) => todo!("serde error: {}", e),
+            Err(e) => panic!(
+                "serde error: {}\ncontent: \n{}\n-----",
+                e,
+                String::from_utf8_lossy(&content)
+            ),
         };
 
         Ok(DecryptedPassword {
@@ -260,10 +282,13 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
         })
     }
 
-    pub fn encrypt_file(
+    pub fn encrypt_file<R>(
         &mut self,
-        DecryptedFile { id, content }: &DecryptedFile<Ctx>,
-    ) -> Result<(), Ctx::Error> {
+        DecryptedFile { id, content }: DecryptedFile<Ctx, R>,
+    ) -> Result<(), Ctx::Error>
+    where
+        R: YsbcRead,
+    {
         let encrypted_key = self.instance.get_key()?;
         let passphrase = self
             .ctx
@@ -272,10 +297,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
-        let encrypted_content: Vec<u8> = Encrypter::new(content.as_slice(), &key)
-            .unwrap()
-            .flat_map(|b| b.unwrap())
-            .collect();
+        let encrypted_content = Encrypter::new(content, &key).ok().unwrap();
 
         self.instance.write_element(&id.0, encrypted_content)?;
 
@@ -285,7 +307,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
     pub fn decrypt_file(
         &mut self,
         id: ElementId<Ctx, false>,
-    ) -> Result<DecryptedFile<Ctx>, Ctx::Error> {
+    ) -> Result<DecryptedFile<Ctx, Decrypter<Ctx::FileRead>>, Ctx::Error> {
         let encrypted_key = self.instance.get_key()?;
         let passphrase = self
             .ctx
@@ -296,12 +318,12 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let encrypted_content = self.instance.get_element(&id.0)?;
 
-        let content: Vec<u8> = Decrypter::new(encrypted_content.as_slice(), &key)
-            .unwrap()
-            .flat_map(|b| b.unwrap())
-            .collect();
+        let decrypter = Decrypter::new(encrypted_content, &key).ok().unwrap();
 
-        Ok(DecryptedFile { id, content })
+        Ok(DecryptedFile {
+            id,
+            content: decrypter,
+        })
     }
 }
 
@@ -343,7 +365,7 @@ impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::testing::{PathBufLeaf, TestCDist, TestCtx};
 
@@ -391,22 +413,34 @@ mod tests {
             .get_instance(Some("tests/instances/basic".to_string()))
             .unwrap();
 
-        let new_file = DecryptedFile {
-            id: ElementId(PathBufLeaf(PathBuf::from("hello_world"))),
-            content: b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+        let new_file_content = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
                 sed do eiusmod tempor incididunt ut labore et dolore magna \
                 aliqua. Ut enim ad minim veniam, quis nostrud exercitation \
                 ullamco laboris nisi ut aliquip ex ea commodo consequat."
-                .to_vec(),
+            .as_slice();
+        let new_file = DecryptedFile {
+            id: ElementId(PathBufLeaf(PathBuf::from("hello_world"))),
+            content: new_file_content,
         };
-        commands.encrypt_file(&new_file).unwrap();
-        println!("{:?}", str::from_utf8(&new_file.content).unwrap());
+        commands.encrypt_file(new_file).unwrap();
+        println!("{:?}", str::from_utf8(new_file_content).unwrap());
 
-        let found_file = commands
+        let mut found_file = commands
             .decrypt_file(ElementId(PathBufLeaf(PathBuf::from("hello_world"))))
             .unwrap();
-        println!("{:?}", str::from_utf8(&found_file.content).unwrap());
-        assert_eq!(&new_file.content, &found_file.content);
+        let content: Vec<u8> = iter::repeat(())
+            .map(|()| {
+                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
+                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
+                let read_size = found_file.content.read(&mut buf).unwrap();
+                buf.truncate(read_size);
+                buf
+            })
+            .take_while(|b| !b.is_empty())
+            .flatten()
+            .collect();
+        println!("{:?}", str::from_utf8(&content).unwrap());
+        assert_eq!(&new_file_content, &content);
     }
 
     #[test]
@@ -419,16 +453,17 @@ mod tests {
             )
             .unwrap();
 
-        let new_file = DecryptedFile {
-            id: ElementId(PathBufLeaf(PathBuf::from("hello_world"))),
-            content: b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+        let content = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
                 sed do eiusmod tempor incididunt ut labore et dolore magna \
                 aliqua. Ut enim ad minim veniam, quis nostrud exercitation \
                 ullamco laboris nisi ut aliquip ex ea commodo consequat."
-                .to_vec(),
+            .as_slice();
+        let new_file = DecryptedFile {
+            id: ElementId(PathBufLeaf(PathBuf::from("hello_world"))),
+            content,
         };
-        commands.encrypt_file(&new_file).unwrap();
-        println!("{:?}", str::from_utf8(&new_file.content).unwrap());
+        commands.encrypt_file(new_file).unwrap();
+        println!("{:?}", str::from_utf8(content).unwrap());
 
         assert!(Path::new("tests/instances/tmp/files/hello_world").is_file());
 

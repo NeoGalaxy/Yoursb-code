@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    fs::{self, create_dir_all},
+    fs::{self, create_dir_all, File},
     io::{stdin, stdout, Read, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
@@ -9,9 +9,12 @@ use std::{
 
 use chacha20poly1305::aead::rand_core::CryptoRngCore;
 use rand::rngs::OsRng;
-use yoursb_domain::interfaces::{
-    CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext, Instance,
-    PathOrLeaf, SaltString, CRYPTED_ENCRYPTION_KEY_SIZE,
+use yoursb_domain::{
+    crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE},
+    interfaces::{
+        CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
+        Instance, PathOrLeaf, SaltString, CRYPTED_ENCRYPTION_KEY_SIZE,
+    },
 };
 
 use crate::repo::{find_global_repo, find_local_repo, RepoPath, KEY_NAME, LOCAL_REPO_SUBDIR};
@@ -42,6 +45,8 @@ impl Context for CliCtx {
     type InstanceLoc = RepoPath;
 
     type CharsDist = CliCharDist;
+
+    type FileRead = File;
 
     type Error = ();
 
@@ -151,9 +156,9 @@ impl Instance<CliCtx> for CliInstance {
     fn get_element<const IS_PASSWORD: bool>(
         &self,
         path: &<CliCtx as Context>::FileLeaf<IS_PASSWORD>,
-    ) -> Result<std::vec::Vec<u8>, <CliCtx as Context>::Error> {
+    ) -> Result<fs::File, <CliCtx as Context>::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
-        Ok(fs::read(path).unwrap())
+        Ok(fs::File::open(path).unwrap())
     }
 
     fn list_content<const IS_PASSWORD: bool>(
@@ -186,20 +191,30 @@ impl Instance<CliCtx> for CliInstance {
         }
     }
 
-    fn write_element<const IS_PASSWORD: bool>(
+    fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &<CliCtx as Context>::FileLeaf<IS_PASSWORD>,
-        content: std::vec::Vec<u8>,
+        mut content: R,
     ) -> Result<(), <CliCtx as Context>::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        fs::write(path, content).unwrap();
+
+        let mut buffer = [0u8; BUFFER_LEN + TAG_SIZE];
+        let mut file = fs::File::create(path).unwrap();
+        loop {
+            let nb_read = match content.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(v) => v,
+                Err(_err) => panic!("blblblbl"),
+            };
+            file.write_all(&buffer[..nb_read]).unwrap();
+        }
         Ok(())
     }
 
-    fn delete(self) -> Result<(), <CliCtx as Context>::Error> {
+    fn delete(self) -> std::result::Result<(), ((), CliInstance)> {
         let _ = fs::remove_dir_all(self.root);
         Ok(())
     }
