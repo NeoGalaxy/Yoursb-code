@@ -110,8 +110,8 @@ impl InitInstanceContext for TestCtx {
 }
 
 impl Instance<TestCtx> for TestInstance {
-    fn locate() -> <TestCtx as Context>::InstanceLoc {
-        "<located instance>".to_string()
+    fn locate() -> Result<String, ()> {
+        Ok("<located instance>".to_string())
     }
 
     fn open(loc: <TestCtx as Context>::InstanceLoc) -> Result<Self, <TestCtx as Context>::Error> {
@@ -215,6 +215,14 @@ impl Instance<TestCtx> for TestInstance {
             };
             file.write_all(&buffer[..nb_read]).unwrap();
         }
+        Ok(())
+    }
+
+    fn delete_element<const IS_PASSWORD: bool>(
+        &mut self,
+        path: &<TestCtx as Context>::FileLeaf<{ IS_PASSWORD }>,
+    ) -> Result<(), <TestCtx as Context>::Error> {
+        fs::remove_file(&path.0).unwrap();
         Ok(())
     }
 

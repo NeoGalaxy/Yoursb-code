@@ -34,7 +34,7 @@ impl<Ctx: Context> Commands<Ctx> {
         let loc = if let Some(loc) = loc {
             loc
         } else {
-            Ctx::Instance::locate()
+            Ctx::Instance::locate()?
         };
         Ok(InstanceCommands {
             ctx: self,
@@ -234,6 +234,8 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
         self.instance
             .write_element(&id, encrypted_content.as_slice())?;
 
+        indicate!(&self.ctx.0, "Password saved");
+
         Ok(DecryptedPassword {
             id: ElementId(id),
             value,
@@ -276,6 +278,8 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             ),
         };
 
+        indicate!(&self.ctx.0, "Password decrypted.");
+
         Ok(DecryptedPassword {
             id: ElementId(id),
             value,
@@ -306,7 +310,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
     pub fn decrypt_file(
         &mut self,
-        id: ElementId<Ctx, false>,
+        id: Ctx::FileLeaf<false>,
     ) -> Result<DecryptedFile<Ctx, Decrypter<Ctx::FileRead>>, Ctx::Error> {
         let encrypted_key = self.instance.get_key()?;
         let passphrase = self
@@ -316,14 +320,21 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
-        let encrypted_content = self.instance.get_element(&id.0)?;
+        let encrypted_content = self.instance.get_element(&id)?;
 
         let decrypter = Decrypter::new(encrypted_content, &key).ok().unwrap();
 
         Ok(DecryptedFile {
-            id,
+            id: ElementId(id),
             content: decrypter,
         })
+    }
+
+    pub fn delete_element<const IS_PASSWORD: bool>(
+        &mut self,
+        id: &Ctx::FileLeaf<IS_PASSWORD>,
+    ) -> Result<(), Ctx::Error> {
+        self.instance.delete_element(id)
     }
 }
 
@@ -426,7 +437,7 @@ mod tests {
         println!("{:?}", str::from_utf8(new_file_content).unwrap());
 
         let mut found_file = commands
-            .decrypt_file(ElementId(PathBufLeaf(PathBuf::from("hello_world"))))
+            .decrypt_file(PathBufLeaf(PathBuf::from("hello_world")))
             .unwrap();
         let content: Vec<u8> = iter::repeat(())
             .map(|()| {

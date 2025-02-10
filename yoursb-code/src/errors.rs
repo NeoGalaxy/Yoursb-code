@@ -2,12 +2,14 @@
 
 use std::{io, path::PathBuf};
 
+use yoursb_domain::crypto::DecryptionError;
+
 // use crate::passwords::PasswordError;
 
 /// Type enumerating all the possible errors
 #[derive(Debug)]
 pub enum Error {
-    /// An IO error occured while using the said file
+    /// An IO error occured while using the said path on the filesystem
     FileError(PathBuf, io::Error),
     /// An IO error occured while using the console
     ConsoleError(io::Error),
@@ -21,14 +23,32 @@ pub enum Error {
     NoConfigDir,
     NoLocalProj,
     RepoAlreadyExists,
+    // The repo was corrupted
+    Corrupted(CorruptionError),
     Abort,
 }
 
-// impl From<PasswordError> for Error {
-//     fn from(value: PasswordError) -> Self {
-//         Error::Password(value)
-//     }
-// }
+#[derive(Debug)]
+pub enum CorruptionError {
+    InvalidKeyfile,
+    InvalidEncryptedFile,
+}
+
+impl From<CorruptionError> for Error {
+    fn from(err: CorruptionError) -> Error {
+        Error::Corrupted(err)
+    }
+}
+
+impl From<DecryptionError<Error>> for Error {
+    fn from(err: DecryptionError<Error>) -> Error {
+        match err {
+            DecryptionError::ReadError(e) => e,
+            DecryptionError::SmallChunk => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
+            DecryptionError::CipherError => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
+        }
+    }
+}
 
 /// Macro to call the [`YoursbError::convert`] function seemlessly
 #[macro_export]
@@ -64,5 +84,16 @@ impl YoursbError for io::Error {
     type Data = PathBuf;
     fn convert(self, data: Self::Data) -> Error {
         Error::FileError(data, self)
+    }
+}
+
+impl YoursbError for DecryptionError<std::io::Error> {
+    type Data = PathBuf;
+    fn convert(self, data: Self::Data) -> Error {
+        match self {
+            DecryptionError::ReadError(e) => Error::FileError(data, e),
+            DecryptionError::SmallChunk => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
+            DecryptionError::CipherError => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
+        }
     }
 }

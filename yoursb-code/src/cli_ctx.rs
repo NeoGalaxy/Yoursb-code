@@ -17,7 +17,11 @@ use yoursb_domain::{
     },
 };
 
-use crate::repo::{find_global_repo, find_local_repo, RepoPath, KEY_NAME, LOCAL_REPO_SUBDIR};
+use crate::{
+    _try,
+    errors::{self, CorruptionError, Error},
+    repo::{find_global_repo, find_local_repo, RepoPath, KEY_NAME, LOCAL_REPO_SUBDIR},
+};
 
 #[derive(Debug)]
 pub struct CliCtx;
@@ -48,7 +52,7 @@ impl Context for CliCtx {
 
     type FileRead = File;
 
-    type Error = ();
+    type Error = errors::Error;
 
     fn indicate<T: core::fmt::Display>(&self, val: T) {
         println!("{val}");
@@ -59,9 +63,17 @@ impl Context for CliCtx {
         T: core::fmt::Display,
     {
         print!("{prompt}: ");
-        stdout().flush().unwrap();
+        let _ = stdout().flush();
         let mut line = String::new();
-        stdin().read_line(&mut line).unwrap();
+        loop {
+            match stdin().read_line(&mut line) {
+                Ok(_) => break,
+                Err(err) => match err.kind() {
+                    std::io::ErrorKind::Interrupted => (),
+                    _ => panic!("{}", err),
+                },
+            }
+        }
         line.trim().to_string()
     }
 
@@ -74,25 +86,24 @@ impl InitInstanceContext for CliCtx {
     fn new_instance(
         loc: Self::InstanceLoc,
         key: CryptedEncryptionKey,
-    ) -> Result<Self::Instance, <CliCtx as Context>::Error> {
-        let path = loc.get_path().unwrap();
+    ) -> Result<Self::Instance, errors::Error> {
+        let path = loc.get_path()?;
 
         let keypath = path.join(KEY_NAME);
         if keypath.exists() {
-            // return Err(errors::Error::RepoAlreadyExists);
-            panic!("RepoAlreadyExists");
+            return Err(errors::Error::RepoAlreadyExists);
         }
 
         if let Some(p) = keypath.parent() {
             let _ = create_dir_all(p);
         }
 
-        let mut file = fs::File::create(&keypath).unwrap();
-        file.write_all(&key.key).unwrap();
-        file.write_all(b"\n").unwrap();
-        file.write_all(key.salt.as_str().as_bytes()).unwrap();
+        let mut file = _try!([keypath] fs::File::create(&keypath));
+        _try!([keypath] file.write_all(&key.key));
+        _try!([keypath] file.write_all(b"\n"));
+        _try!([keypath] file.write_all(key.salt.as_str().as_bytes()));
 
-        Ok(Self::Instance::open(loc).unwrap())
+        Self::Instance::open(loc)
     }
     fn key_rng(&self) -> impl CryptoRngCore {
         OsRng
@@ -103,22 +114,27 @@ impl InitInstanceContext for CliCtx {
 }
 
 impl Instance<CliCtx> for CliInstance {
-    fn locate() -> <CliCtx as Context>::InstanceLoc {
-        find_local_repo()
-            .unwrap()
+    fn locate() -> Result<RepoPath, errors::Error> {
+        Ok(find_local_repo()?
             .map(|p| RepoPath::Local(Some(p)))
-            .unwrap_or(RepoPath::Global)
+            .unwrap_or(RepoPath::Global))
     }
 
-    fn open(loc: <CliCtx as Context>::InstanceLoc) -> Result<Self, <CliCtx as Context>::Error> {
+    fn open(loc: <CliCtx as Context>::InstanceLoc) -> Result<Self, errors::Error> {
         let ysbc_dir = match loc {
-            RepoPath::Global => find_global_repo().unwrap(),
-            RepoPath::Local(None) => find_local_repo().unwrap().unwrap(),
-            RepoPath::Local(Some(path)) => path.canonicalize().unwrap().join(LOCAL_REPO_SUBDIR),
+            RepoPath::Global => find_global_repo(),
+            RepoPath::Local(None) => find_local_repo()?,
+            RepoPath::Local(Some(path)) => {
+                path.canonicalize().ok().map(|p| p.join(LOCAL_REPO_SUBDIR))
+            }
+        };
+
+        let Some(ysbc_dir) = ysbc_dir else {
+            return Err(Error::NoRepo);
         };
 
         if !ysbc_dir.is_dir() {
-            todo!()
+            return Err(Error::NoRepo);
         }
 
         // Check key
@@ -126,39 +142,43 @@ impl Instance<CliCtx> for CliInstance {
         Ok(Self { root: ysbc_dir })
     }
 
-    fn get_key(&mut self) -> Result<CryptedEncryptionKey, <CliCtx as Context>::Error> {
+    fn get_key(&mut self) -> Result<CryptedEncryptionKey, errors::Error> {
         let keypath = self.root.join(KEY_NAME);
         if keypath.exists() {
-            // return Err(errors::Error::RepoAlreadyExists);
-            panic!("RepoAlreadyExists");
+            return Err(errors::Error::RepoAlreadyExists);
         }
 
         if let Some(p) = keypath.parent() {
             let _ = create_dir_all(p);
         }
 
-        let mut file = fs::File::open(&keypath).unwrap();
+        let mut file = _try!([keypath] fs::File::open(&keypath));
         let mut key = [0u8; CRYPTED_ENCRYPTION_KEY_SIZE];
-        file.read_exact(&mut key).unwrap();
+        file.read_exact(&mut key)
+            .map_err(|_| CorruptionError::InvalidKeyfile)?;
         let mut newline = [0u8; 1];
-        file.read_exact(&mut newline).unwrap();
-        assert_eq!(&newline, b"\n");
+        file.read_exact(&mut newline)
+            .map_err(|_| CorruptionError::InvalidKeyfile)?;
+        if &newline != b"\n" {
+            return Err(CorruptionError::InvalidKeyfile.into());
+        }
+
         let mut salt = Vec::new();
-        file.read_to_end(&mut salt).unwrap();
-        let salt = String::from_utf8(salt).unwrap();
+        _try!([keypath] file.read_to_end(&mut salt));
+        let salt = String::from_utf8(salt).map_err(|_| CorruptionError::InvalidKeyfile)?;
 
         Ok(CryptedEncryptionKey {
             key,
-            salt: SaltString::from_b64(&salt).unwrap(),
+            salt: SaltString::from_b64(&salt).map_err(|_| CorruptionError::InvalidKeyfile)?,
         })
     }
 
     fn get_element<const IS_PASSWORD: bool>(
         &self,
         path: &<CliCtx as Context>::FileLeaf<IS_PASSWORD>,
-    ) -> Result<fs::File, <CliCtx as Context>::Error> {
+    ) -> Result<fs::File, errors::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
-        Ok(fs::File::open(path).unwrap())
+        Ok(_try!([path] fs::File::open(&path)))
     }
 
     fn list_content<const IS_PASSWORD: bool>(
@@ -168,54 +188,58 @@ impl Instance<CliCtx> for CliInstance {
         impl Iterator<
             Item = Result<
                 yoursb_domain::interfaces::PathOrLeaf<CliCtx, IS_PASSWORD>,
-                <CliCtx as Context>::Error,
+                errors::Error,
             >,
         >,
-        <CliCtx as Context>::Error,
+        errors::Error,
     > {
-        let p = self.compute_path(&directory, IS_PASSWORD);
-        match fs::read_dir(p) {
-            Ok(d) => Ok(d.map(|p| {
-                if let Ok(p) = p {
-                    let p = p.path();
-                    Ok(if p.is_dir() {
-                        PathOrLeaf::Path(p.into())
-                    } else {
-                        PathOrLeaf::Leaf(PathBufLeaf(p))
-                    })
-                } else {
-                    Err(())
-                }
-            })),
-            Err(_) => Err(()),
-        }
+        let dir_path = self.compute_path(&directory, IS_PASSWORD);
+        let d = _try!([dir_path] fs::read_dir(&dir_path));
+        Ok(d.map(move |p| {
+            let p = _try!([dir_path.clone()] p);
+            let p = p.path();
+            Ok(if p.is_dir() {
+                PathOrLeaf::Path(p.into())
+            } else {
+                PathOrLeaf::Leaf(PathBufLeaf(p))
+            })
+        }))
     }
 
     fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &<CliCtx as Context>::FileLeaf<IS_PASSWORD>,
         mut content: R,
-    ) -> Result<(), <CliCtx as Context>::Error> {
+    ) -> Result<(), errors::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
 
         let mut buffer = [0u8; BUFFER_LEN + TAG_SIZE];
-        let mut file = fs::File::create(path).unwrap();
+        let mut file = _try!([path] fs::File::create(&path));
         loop {
-            let nb_read = match content.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(v) => v,
-                Err(_err) => panic!("blblblbl"),
+            let nb_read = match content.read(&mut buffer).ok().unwrap() {
+                0 => break,
+                v => v,
             };
-            file.write_all(&buffer[..nb_read]).unwrap();
+            _try!([path] file.write_all(&buffer[..nb_read]));
         }
         Ok(())
     }
 
-    fn delete(self) -> std::result::Result<(), ((), CliInstance)> {
+    fn delete(self) -> std::result::Result<(), (errors::Error, CliInstance)> {
         let _ = fs::remove_dir_all(self.root);
+        Ok(())
+    }
+    fn delete_element<const IS_PASSWORD: bool>(
+        &mut self,
+        path: &PathBufLeaf,
+    ) -> std::result::Result<(), errors::Error> {
+        _try!([path.0.clone()] fs::remove_file(&path.0));
+        if let Some(parent) = path.0.parent() {
+            let _ = fs::remove_dir(parent);
+        }
         Ok(())
     }
 }

@@ -9,7 +9,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::{_try, errors, InputFilePosArg, OutputFilePosArg};
+use crate::{_try, errors};
 
 /// The name of the directory in which everything is stored when in a local dir
 pub const LOCAL_REPO_SUBDIR: &str = ".yoursbcode";
@@ -36,30 +36,6 @@ pub enum RepoPath {
 pub enum FilePos {
     Internal(PathBuf),
     External(PathBuf),
-}
-
-impl From<InputFilePosArg> for FilePos {
-    fn from(value: InputFilePosArg) -> Self {
-        if let Some(i) = value.internal {
-            Self::Internal(i)
-        } else if let Some(e) = value.external {
-            Self::External(e)
-        } else {
-            panic!("Expected `InternalPosArg` to have either an internal or external value");
-        }
-    }
-}
-
-impl From<OutputFilePosArg> for FilePos {
-    fn from(value: OutputFilePosArg) -> Self {
-        if let Some(i) = value.internal {
-            Self::Internal(i)
-        } else if let Some(e) = value.external {
-            Self::External(e)
-        } else {
-            panic!("Expected `InternalPosArg` to have either an internal or external value");
-        }
-    }
 }
 
 impl FilePos {

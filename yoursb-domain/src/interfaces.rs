@@ -57,7 +57,7 @@ pub trait InitInstanceContext: Context {
 }
 
 pub trait Instance<Ctx: Context>: Sized {
-    fn locate() -> Ctx::InstanceLoc;
+    fn locate() -> Result<Ctx::InstanceLoc, Ctx::Error>;
 
     fn open(loc: Ctx::InstanceLoc) -> Result<Self, Ctx::Error>;
 
@@ -78,6 +78,11 @@ pub trait Instance<Ctx: Context>: Sized {
         &mut self,
         path: &Ctx::FileLeaf<IS_PASSWORD>,
         content: R,
+    ) -> Result<(), Ctx::Error>;
+
+    fn delete_element<const IS_PASSWORD: bool>(
+        &mut self,
+        path: &Ctx::FileLeaf<IS_PASSWORD>,
     ) -> Result<(), Ctx::Error>;
 
     fn delete(self) -> Result<(), (Ctx::Error, Self)>;
@@ -126,13 +131,6 @@ pub enum NewPasswordDetails<Ctx: Context> {
     // ToPrompt,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PasswordContent<'a> {
-    pub password: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub data: Option<&'a str>,
-}
-
 #[derive(Debug)]
 pub struct DecryptedPassword<Ctx: Context> {
     pub id: ElementId<Ctx, true>,
@@ -146,7 +144,7 @@ pub struct DecryptedFile<Ctx: Context, R: YsbcRead> {
 }
 
 #[derive(Debug)]
-pub struct ElementId<Ctx: Context, const IS_PASSWORD: bool>(pub(crate) Ctx::FileLeaf<IS_PASSWORD>);
+pub struct ElementId<Ctx: Context, const IS_PASSWORD: bool>(pub Ctx::FileLeaf<IS_PASSWORD>);
 // pub struct PasswordId<Ctx: Context>(pub(crate) Ctx::FileLeaf<true>);
 // pub struct FileId<Ctx: Context>(pub(crate) Ctx::FileLeaf<false>);
 

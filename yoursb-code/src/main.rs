@@ -10,15 +10,19 @@ pub mod cli_ctx;
 pub mod errors;
 pub mod repo;
 
-use std::io::{stdin, Read};
+use std::fs;
+use std::io::{stdin, Read, Write};
 use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::Duration;
 
 use clap::Parser;
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 use cli_ctx::{CliCharDist, CliCtx, CliInstance, PathBufLeaf, PathBufPath};
 use repo::RepoPath;
 use yoursb_domain::commands as domain_cmd;
-use yoursb_domain::interfaces::{Instance, NewPasswordDetails};
+use yoursb_domain::crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE};
+use yoursb_domain::interfaces::{DecryptedFile, ElementId, Instance, NewPasswordDetails};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -151,30 +155,6 @@ pub enum Commands {
     },*/
 }
 
-#[derive(Debug, Args, Clone)]
-#[group(required = true, multiple = false)]
-pub struct InputFilePosArg {
-    /// Identifier of the internal file to decrypt from the YourSBCode instance
-    #[arg(id = "identifier", short, long)]
-    internal: Option<PathBuf>,
-
-    /// Path to the encrypted input file
-    #[arg(id = "path", short, long)]
-    external: Option<PathBuf>,
-}
-
-#[derive(Debug, Args, Clone)]
-#[group(required = true, multiple = false)]
-pub struct OutputFilePosArg {
-    /// Identifier of the internal file to store the encrypted input in the YourSBCode instance
-    #[arg(id = "identifier", short, long)]
-    internal: Option<PathBuf>,
-
-    /// Path towards which we'll encrypt the file
-    #[arg(id = "path", short, long)]
-    external: Option<PathBuf>,
-}
-
 #[derive(Subcommand)]
 pub enum PasswordAction {
     /// Creates and encrypts a password. Aliases: `e`, `en`, `encr`, `encrypt`, `c`, `new`, `add`
@@ -207,11 +187,17 @@ pub enum PasswordAction {
         #[arg(long)]
         no_copy: bool,
     },
-    /// Queries for a password. Aliases: `g`, `d`, `de`, `decrypt`
-    #[clap(aliases = &["g", "d", "de", "decrypt"])]
+    /// Queries for a password. Aliases: `g`, `d`, `dec`, `decrypt`
+    #[clap(aliases = &["g", "d", "dec", "decrypt"])]
     Get {
         /// The password to find
         identifier: String,
+        /// Display the password in stdout
+        #[arg(short, long)]
+        disp: bool,
+        /// Prevents copying the password to your clipboard.
+        #[arg(long)]
+        no_copy: bool,
     },
     /// List all password ids, aliases: `l`, `ls`
     #[clap(aliases = &["l", "ls"])]
@@ -221,7 +207,7 @@ pub enum PasswordAction {
         prefix: String,
     },
     /// Delete a password, alias: `d`, `del`
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &["del"])]
     Delete {
         /// The password to delete
         identifier: String,
@@ -236,18 +222,21 @@ pub enum FileAction {
         /// File to encrypt.
         file: PathBuf,
 
-        #[clap(flatten)]
-        output: OutputFilePosArg,
+        /// Name of the file to create inside the instance.
+        /// Defaults to the name of the file to encrypt.
+        #[arg(short, long)]
+        id: Option<PathBuf>,
     },
-    /// Queries for a encrypted file. Aliases: `g`, `get`, `d`, `de`
-    #[clap(aliases = &["g", "get", "d", "de"])]
+    /// Queries for a encrypted file. Aliases: `g`, `get`, `d`, `dec`
+    #[clap(aliases = &["g", "get", "d", "dec"])]
     Decrypt {
-        #[clap(flatten)]
-        input: InputFilePosArg,
+        /// Name of the file in the instance to decrypt.
+        id: PathBuf,
 
         /// Output path of the decrypted file.
-        #[arg(short, long, default_value = "decrypted.txt")]
-        output: PathBuf,
+        /// Defaults to the name of the file to decrypt.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     /// List all encrypted file ids, aliases: `l`, `ls`
     #[clap(aliases = &["l", "ls"])]
@@ -257,15 +246,14 @@ pub enum FileAction {
         prefix: String,
     },
     /// Delete a encrypted file from the YSBC instance, alias: `d`, `del`
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &["del"])]
     Delete {
         /// The encrypted file to delete
         identifier: String,
     },
 }
 
-fn main() /* -> Result<(), errors::Error>*/
-{
+fn main() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     let ctx = domain_cmd::Commands::new(CliCtx);
@@ -275,25 +263,23 @@ fn main() /* -> Result<(), errors::Error>*/
             if embedded {
                 todo!()
             }
-            ctx.init_intance(location.or(args.instance).unwrap_or_default(), None)
-                .unwrap();
+            ctx.init_intance(location.or(args.instance).unwrap_or_default(), None)?;
         }
         Commands::Locate => {
             let current = CliInstance::locate();
             let new_instance_loc = args.instance.unwrap_or_default();
 
-            println!("The current instance is located at {current}");
-            // match current {
-            //     Ok(current) => println!("The current instance is located at {current:?}"),
-            //     Err(e) => println!("No current instance has been found: {e:?}"),
-            // }
+            match current {
+                Ok(current) => println!("The current instance is located at {current}"),
+                Err(e) => println!("No current instance has been found: {e:?}"),
+            }
 
             println!("The attempt of instance creation would be at {new_instance_loc}");
         }
         Commands::Clear => todo!(),
         Commands::Embedded { location, force } => todo!(),
         Commands::Delete { force } => {
-            let instance = ctx.get_instance(args.instance).unwrap();
+            let instance = ctx.get_instance(args.instance)?;
             if !force {
                 println!(
                     "This will delete all the content of directory {:?}.",
@@ -303,16 +289,15 @@ fn main() /* -> Result<(), errors::Error>*/
                 let mut buf = [0];
                 stdin()
                     .read_exact(&mut buf)
-                    .map_err(errors::Error::ConsoleError)
-                    .unwrap();
-                if (buf[0] as char).to_ascii_lowercase() != 'y' {
+                    .map_err(errors::Error::ConsoleError)?;
+                if !(buf[0] as char).eq_ignore_ascii_case(&'y') {
                     panic!("{:?}", errors::Error::Abort)
                 }
             }
-            instance.del_intance().unwrap();
+            instance.del_intance().map_err(|(e, _)| e)?;
         }
         Commands::Password { action } => {
-            let mut instance = ctx.get_instance(args.instance).unwrap();
+            let mut instance = ctx.get_instance(args.instance)?;
             match action {
                 PasswordAction::Create {
                     identifier,
@@ -324,51 +309,116 @@ fn main() /* -> Result<(), errors::Error>*/
                 } => {
                     // TODO: check exists?
 
-                    instance
-                        .new_password(
-                            PathBufLeaf(identifier.into()),
-                            data,
-                            if prompt {
-                                NewPasswordDetails::Prompt
-                            } else {
-                                NewPasswordDetails::Random { len, allowed_chars }
-                            },
-                        )
-                        .unwrap();
-                    // TODO: copy
+                    let saved_password = instance.new_password(
+                        PathBufLeaf(identifier.into()),
+                        data,
+                        if prompt {
+                            NewPasswordDetails::Prompt
+                        } else {
+                            NewPasswordDetails::Random { len, allowed_chars }
+                        },
+                    )?;
+
+                    if !prompt && !no_copy {
+                        let res = arboard::Clipboard::new().and_then(|mut c| {
+                            c.set_text(&saved_password.value.password)?;
+                            sleep(Duration::from_millis(1000));
+                            Ok(())
+                        });
+                        if let Err(err) = res {
+                            println!("Unable to copy password to Clipboard: {err}");
+                        } else {
+                            println!("== Password copied to Clipboard ==");
+                        }
+                    }
                 }
-                PasswordAction::Get { identifier } => {
-                    let password = instance
-                        .get_password(PathBufLeaf(identifier.into()))
-                        .unwrap();
-                    todo!("{:?}", password)
+                PasswordAction::Get {
+                    identifier,
+                    disp,
+                    no_copy,
+                } => {
+                    let saved_password = instance.get_password(PathBufLeaf(identifier.into()))?;
+                    if !no_copy {
+                        let res = arboard::Clipboard::new().and_then(|mut c| {
+                            c.set_text(&saved_password.value.password)?;
+                            sleep(Duration::from_millis(1000));
+                            Ok(())
+                        });
+                        if let Err(err) = res {
+                            println!("Unable to copy password to Clipboard: {err}");
+                        } else {
+                            println!("== Password copied to Clipboard ==");
+                        }
+                    }
+                    if disp {
+                        println!("The password is: {}", saved_password.value.password);
+                    }
+
+                    if let Some(data) = saved_password.value.data {
+                        println!("---------   associated data   ---------");
+                        println!("{data:?}");
+                        println!("---------------------------------------");
+                    }
                 }
                 PasswordAction::List { prefix } => {
-                    let _content = instance.list_content::<true>(
+                    let content = instance.list_content::<true>(
                         PathBufPath(instance.instance.root.to_owned()),
                         &prefix,
                     );
-                    todo!()
+                    println!("Passwords starting with {prefix:?}:");
+
+                    for pass in content {
+                        let pass = pass?;
+                        println!("- {}", pass.0);
+                    }
                 }
                 PasswordAction::Delete { identifier } => {
-                    todo!()
+                    instance.delete_element::<true>(&PathBufLeaf(identifier.into()))?;
                 }
             }
         }
         Commands::File { action } => {
-            let instance = ctx.get_instance(args.instance).unwrap();
+            let mut instance = ctx.get_instance(args.instance)?;
             match action {
-                FileAction::Encrypt { file, output } => todo!(),
-                FileAction::Decrypt { input, output } => todo!(),
+                FileAction::Encrypt { file, id } => {
+                    let input = _try! {[file] fs::File::open(&file)};
+
+                    instance.encrypt_file(DecryptedFile {
+                        id: ElementId(PathBufLeaf(id.unwrap_or(file.file_name().unwrap().into()))),
+                        content: input,
+                    })?;
+                }
+                FileAction::Decrypt { id, output } => {
+                    let output_path = output.unwrap_or(id.file_name().unwrap().into());
+                    let mut output_content = instance.decrypt_file(PathBufLeaf(id.clone()))?;
+
+                    let mut output_file = _try! {[output_path] fs::File::create(&output_path)};
+                    let mut buff = [0u8; BUFFER_LEN + TAG_SIZE];
+                    loop {
+                        let nb_read = _try! {[id] output_content.content.read(&mut buff)};
+                        if nb_read == 0 {
+                            break;
+                        }
+                        _try! {[output_path] output_file.write_all(&buff[0..nb_read])};
+                    }
+                }
                 FileAction::List { prefix } => {
-                    let _content = instance.list_content::<false>(
+                    let content = instance.list_content::<false>(
                         PathBufPath(instance.instance.root.to_owned()),
                         &prefix,
                     );
-                    todo!()
+                    println!("Files starting with {prefix:?}:");
+
+                    for file in content {
+                        let pass = file?;
+                        println!("- {}", pass.0);
+                    }
                 }
-                FileAction::Delete { identifier } => todo!(),
+                FileAction::Delete { identifier } => {
+                    instance.delete_element::<false>(&PathBufLeaf(identifier.into()))?;
+                }
             }
         }
     }
+    Ok(())
 }
