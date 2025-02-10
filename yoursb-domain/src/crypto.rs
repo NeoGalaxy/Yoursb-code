@@ -13,7 +13,8 @@ use chacha20poly1305::{
 use rand::{rngs::OsRng, Rng, RngCore};
 
 use crate::interfaces::{
-    CryptedEncryptionKey, EncryptionKey, InitInstanceContext, CRYPTED_ENCRYPTION_KEY_SIZE,
+    CryptedEncryptionKey, EncryptionKey, InitInstanceContext, WritableInstance,
+    CRYPTED_ENCRYPTION_KEY_SIZE,
 };
 
 pub const BUFFER_LEN: usize = 500;
@@ -95,7 +96,13 @@ pub fn decrypt_key(
     Ok(key)
 }
 
-pub fn create_key(pass: impl AsRef<str>, ctx: &impl InitInstanceContext) -> CryptedEncryptionKey {
+pub fn create_key<Ctx: InitInstanceContext>(
+    pass: impl AsRef<str>,
+    ctx: &Ctx,
+) -> CryptedEncryptionKey
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
     let salt = SaltString::generate(ctx.salt_rng());
     let mut pass_hash = [0; 32];
     Argon2::default()

@@ -35,7 +35,6 @@ pub trait Context: Sized {
         Path = Self::FilePath<IS_PASSWORD>,
     >;
     type InstanceLoc: Display;
-    type CharsDist: CharsDist;
 
     type FileRead: YsbcRead;
     type Error;
@@ -46,7 +45,13 @@ pub trait Context: Sized {
     fn set_clipboard(&self, content: &str);
 }
 
-pub trait InitInstanceContext: Context {
+pub trait InitInstanceContext
+where
+    Self: Context,
+    Self::Instance: WritableInstance<Self>,
+{
+    type CharsDist: CharsDist;
+
     fn new_instance(
         path: Self::InstanceLoc,
         key: CryptedEncryptionKey,
@@ -73,7 +78,12 @@ pub trait Instance<Ctx: Context>: Sized {
         &self,
         directory: Ctx::FilePath<IS_PASSWORD>,
     ) -> Result<impl Iterator<Item = Result<PathOrLeaf<Ctx, IS_PASSWORD>, Ctx::Error>>, Ctx::Error>;
+}
 
+pub trait WritableInstance<Ctx: InitInstanceContext>: Instance<Ctx>
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
     fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &Ctx::FileLeaf<IS_PASSWORD>,
@@ -121,7 +131,10 @@ pub trait CharsDist {
     fn char_ranges(&self) -> impl ExactSizeIterator<Item = (char, char)> + '_;
 }
 
-pub enum NewPasswordDetails<Ctx: Context> {
+pub enum NewPasswordDetails<Ctx: InitInstanceContext>
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
     Prompt,
     Known(String),
     Random {

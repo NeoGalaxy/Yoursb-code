@@ -22,7 +22,7 @@ use crate::{
     crypto::{Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PathOrLeaf, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
 
@@ -57,8 +57,6 @@ impl Context for TestCtx {
 
     type InstanceLoc = String;
 
-    type CharsDist = TestCDist;
-
     type FileRead = std::fs::File;
     type Error = ();
 
@@ -91,6 +89,8 @@ impl Context for TestCtx {
 }
 
 impl InitInstanceContext for TestCtx {
+    type CharsDist = TestCDist;
+
     fn new_instance(
         path: Self::InstanceLoc,
         key: CryptedEncryptionKey,
@@ -194,7 +194,9 @@ impl Instance<TestCtx> for TestInstance {
             Err(_) => Err(()),
         }
     }
+}
 
+impl WritableInstance<TestCtx> for TestInstance {
     fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &<TestCtx as Context>::FileLeaf<IS_PASSWORD>,

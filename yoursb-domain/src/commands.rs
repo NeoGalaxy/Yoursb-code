@@ -10,6 +10,7 @@ use crate::{
     interfaces::{
         indicate, CharsDist, Context, DecryptedFile, DecryptedPassword, ElementId, FileLeaf,
         FilePath, InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf,
+        WritableInstance,
     },
 };
 
@@ -40,6 +41,128 @@ impl<Ctx: Context> Commands<Ctx> {
             ctx: self,
             instance: Ctx::Instance::open(loc)?,
         })
+    }
+}
+
+impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx>
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
+    /// Add a password to the instance
+    pub fn new_password(
+        &mut self,
+        id: Ctx::FileLeaf<true>,
+        data: Option<String>,
+        password: NewPasswordDetails<Ctx>,
+    ) -> Result<DecryptedPassword<Ctx>, Ctx::Error> {
+        indicate!(&self.ctx.0, "New password will be saved as {:?}", id);
+
+        let password = match password {
+            NewPasswordDetails::Known(pass) => pass,
+            NewPasswordDetails::Prompt => {
+                todo!()
+            }
+            NewPasswordDetails::Random { len, allowed_chars } => {
+                indicate!(
+                    &self.ctx.0,
+                    "Generating random password of length {:?}...",
+                    len
+                );
+                let nb_chars_possible = allowed_chars
+                    .char_ranges()
+                    .fold(0, |acc, (start, end)| acc + 1 + end as u32 - start as u32);
+                let mut content = String::with_capacity(len.into());
+                let rand_indexes = OsRng
+                    .sample_iter(Uniform::new_inclusive(0, nb_chars_possible - 1))
+                    .take(len as usize);
+                'indexes_loop: for mut char_idx in rand_indexes {
+                    // TODO: check if the time this takes to generate gives an indication
+                    // on the generated value
+                    for current_range in allowed_chars.char_ranges() {
+                        if char_idx > current_range.1 as u32 - current_range.0 as u32 {
+                            char_idx -= 1 + current_range.1 as u32 - current_range.0 as u32;
+                            continue;
+                        }
+                        // Found the char
+                        let c = RangeInclusive::new(current_range.0, current_range.1)
+                            .nth(char_idx as usize)
+                            .unwrap();
+                        content.push(c);
+                        continue 'indexes_loop;
+                    }
+                    unreachable!("`i` should always be in range of the allowed_chars")
+                }
+                assert_eq!(content.len(), len as usize);
+                content
+            }
+        };
+
+        let value = Password { password, data };
+
+        let encrypted_key = self.instance.get_key()?;
+        let passphrase = self
+            .ctx
+            .0
+            .prompt_secret("Please enter your instance passphrase");
+
+        let key = decrypt_key(encrypted_key, passphrase).unwrap();
+
+        let content = match serde_json::to_string(&value) {
+            Ok(c) => c,
+            Err(e) => todo!("serde error: {}", e),
+        };
+
+        let mut encrypter = Encrypter::new(content.as_bytes(), &key).unwrap();
+        let encrypted_content: Vec<u8> = iter::repeat(())
+            .map(|()| {
+                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
+                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
+                let read_size = encrypter.read(&mut buf).unwrap();
+                buf.truncate(read_size);
+                buf
+            })
+            .take_while(|b| !b.is_empty())
+            .flatten()
+            .collect();
+
+        self.instance
+            .write_element(&id, encrypted_content.as_slice())?;
+
+        indicate!(&self.ctx.0, "Password saved");
+
+        Ok(DecryptedPassword {
+            id: ElementId(id),
+            value,
+        })
+    }
+
+    pub fn encrypt_file<R>(
+        &mut self,
+        DecryptedFile { id, content }: DecryptedFile<Ctx, R>,
+    ) -> Result<(), Ctx::Error>
+    where
+        R: YsbcRead,
+    {
+        let encrypted_key = self.instance.get_key()?;
+        let passphrase = self
+            .ctx
+            .0
+            .prompt_secret("Please enter your instance passphrase");
+
+        let key = decrypt_key(encrypted_key, passphrase).unwrap();
+
+        let encrypted_content = Encrypter::new(content, &key).ok().unwrap();
+
+        self.instance.write_element(&id.0, encrypted_content)?;
+
+        Ok(())
+    }
+
+    pub fn delete_element<const IS_PASSWORD: bool>(
+        &mut self,
+        id: &Ctx::FileLeaf<IS_PASSWORD>,
+    ) -> Result<(), Ctx::Error> {
+        self.instance.delete_element(id)
     }
 }
 
@@ -154,94 +277,6 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
         }
     }
 
-    /// Add a password to the instance
-    pub fn new_password(
-        &mut self,
-        id: Ctx::FileLeaf<true>,
-        data: Option<String>,
-        password: NewPasswordDetails<Ctx>,
-    ) -> Result<DecryptedPassword<Ctx>, Ctx::Error> {
-        indicate!(&self.ctx.0, "New password will be saved as {:?}", id);
-
-        let password = match password {
-            NewPasswordDetails::Known(pass) => pass,
-            NewPasswordDetails::Prompt => {
-                todo!()
-            }
-            NewPasswordDetails::Random { len, allowed_chars } => {
-                indicate!(
-                    &self.ctx.0,
-                    "Generating random password of length {:?}...",
-                    len
-                );
-                let nb_chars_possible = allowed_chars
-                    .char_ranges()
-                    .fold(0, |acc, (start, end)| acc + 1 + end as u32 - start as u32);
-                let mut content = String::with_capacity(len.into());
-                let rand_indexes = OsRng
-                    .sample_iter(Uniform::new_inclusive(0, nb_chars_possible - 1))
-                    .take(len as usize);
-                'indexes_loop: for mut char_idx in rand_indexes {
-                    // TODO: check if the time this takes to generate gives an indication
-                    // on the generated value
-                    for current_range in allowed_chars.char_ranges() {
-                        if char_idx > current_range.1 as u32 - current_range.0 as u32 {
-                            char_idx -= 1 + current_range.1 as u32 - current_range.0 as u32;
-                            continue;
-                        }
-                        // Found the char
-                        let c = RangeInclusive::new(current_range.0, current_range.1)
-                            .nth(char_idx as usize)
-                            .unwrap();
-                        content.push(c);
-                        continue 'indexes_loop;
-                    }
-                    unreachable!("`i` should always be in range of the allowed_chars")
-                }
-                assert_eq!(content.len(), len as usize);
-                content
-            }
-        };
-
-        let value = Password { password, data };
-
-        let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
-
-        let key = decrypt_key(encrypted_key, passphrase).unwrap();
-
-        let content = match serde_json::to_string(&value) {
-            Ok(c) => c,
-            Err(e) => todo!("serde error: {}", e),
-        };
-
-        let mut encrypter = Encrypter::new(content.as_bytes(), &key).unwrap();
-        let encrypted_content: Vec<u8> = iter::repeat(())
-            .map(|()| {
-                let mut buf = heapless::Vec::<u8, { BUFFER_LEN + TAG_SIZE }>::new();
-                buf.resize_default(BUFFER_LEN + TAG_SIZE).unwrap();
-                let read_size = encrypter.read(&mut buf).unwrap();
-                buf.truncate(read_size);
-                buf
-            })
-            .take_while(|b| !b.is_empty())
-            .flatten()
-            .collect();
-
-        self.instance
-            .write_element(&id, encrypted_content.as_slice())?;
-
-        indicate!(&self.ctx.0, "Password saved");
-
-        Ok(DecryptedPassword {
-            id: ElementId(id),
-            value,
-        })
-    }
-
     pub fn get_password(
         &mut self,
         id: Ctx::FileLeaf<true>,
@@ -286,28 +321,6 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
         })
     }
 
-    pub fn encrypt_file<R>(
-        &mut self,
-        DecryptedFile { id, content }: DecryptedFile<Ctx, R>,
-    ) -> Result<(), Ctx::Error>
-    where
-        R: YsbcRead,
-    {
-        let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
-
-        let key = decrypt_key(encrypted_key, passphrase).unwrap();
-
-        let encrypted_content = Encrypter::new(content, &key).ok().unwrap();
-
-        self.instance.write_element(&id.0, encrypted_content)?;
-
-        Ok(())
-    }
-
     pub fn decrypt_file(
         &mut self,
         id: Ctx::FileLeaf<false>,
@@ -329,16 +342,12 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             content: decrypter,
         })
     }
-
-    pub fn delete_element<const IS_PASSWORD: bool>(
-        &mut self,
-        id: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> Result<(), Ctx::Error> {
-        self.instance.delete_element(id)
-    }
 }
 
-impl<Ctx: InitInstanceContext> Commands<Ctx> {
+impl<Ctx: InitInstanceContext> Commands<Ctx>
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
     pub fn init_intance(
         &self,
         path: Ctx::InstanceLoc,
@@ -361,7 +370,10 @@ impl<Ctx: InitInstanceContext> Commands<Ctx> {
     }
 }
 
-impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx> {
+impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx>
+where
+    Ctx::Instance: WritableInstance<Ctx>,
+{
     pub fn del_intance(self) -> Result<(), (Ctx::Error, Self)> {
         self.instance.delete().map_err(|(err, i)| {
             (

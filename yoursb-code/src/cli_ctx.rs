@@ -13,7 +13,7 @@ use yoursb_domain::{
     crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, SaltString, CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PathOrLeaf, SaltString, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
 
@@ -48,8 +48,6 @@ impl Context for CliCtx {
 
     type InstanceLoc = RepoPath;
 
-    type CharsDist = CliCharDist;
-
     type FileRead = File;
 
     type Error = errors::Error;
@@ -83,6 +81,8 @@ impl Context for CliCtx {
 }
 
 impl InitInstanceContext for CliCtx {
+    type CharsDist = CliCharDist;
+
     fn new_instance(
         loc: Self::InstanceLoc,
         key: CryptedEncryptionKey,
@@ -205,7 +205,9 @@ impl Instance<CliCtx> for CliInstance {
             })
         }))
     }
+}
 
+impl WritableInstance<CliCtx> for CliInstance {
     fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
         &mut self,
         path: &<CliCtx as Context>::FileLeaf<IS_PASSWORD>,
