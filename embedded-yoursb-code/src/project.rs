@@ -47,7 +47,7 @@ pub fn find_project() -> Heaped<i8> {
             snprintf(
                 project_dir.offset(dir_end as _),
                 LOCAL_PROJECT_SUBDIR.len() + 2 + 30,
-                "/%.*s\0".as_ptr() as _,
+                c"/%.*s".as_ptr() as _,
                 LOCAL_PROJECT_SUBDIR.len(),
                 LOCAL_PROJECT_SUBDIR.as_ptr(),
             )
@@ -71,7 +71,7 @@ pub fn find_project() -> Heaped<i8> {
                 snprintf(
                     *error,
                     beginning.len() + 10,
-                    "%.*s%d\0".as_ptr() as _,
+                    c"%.*s%d".as_ptr() as _,
                     beginning.len(),
                     beginning,
                     e,
@@ -122,7 +122,7 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
         snprintf(
             file_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
-            "/%s/%s\0".as_ptr() as _,
+            c"/%s/%s".as_ptr() as _,
             to_add.as_ptr(),
             identifier,
         )
@@ -144,7 +144,7 @@ pub fn find_loc(is_file: bool, identifier: &CStr) -> (Heaped<i8>, Heaped<i8>) {
         snprintf(
             key_path.offset(curr_dir_len as _),
             new_len - curr_dir_len,
-            "/%s\0".as_ptr() as _,
+            c"/%s".as_ptr() as _,
             KEY_NAME.as_ptr(),
         )
     };

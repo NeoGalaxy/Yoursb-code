@@ -19,13 +19,13 @@ use core::{
     ops::{Deref, DerefMut},
     ptr, slice,
 };
-use std::{ptr::null_mut, time::Duration};
+use std::ptr::null_mut;
 
 use crypto::decrypt;
 use key::unlock_key;
 use libc::{
-    c_void, exit, fdopen, fopen, fprintf, free, memcpy, nanosleep, posix_memalign, sleep, usleep,
-    STDERR_FILENO, STDOUT_FILENO,
+    c_void, exit, fdopen, fopen, fprintf, free, memcpy, nanosleep, posix_memalign, STDERR_FILENO,
+    STDOUT_FILENO,
 };
 use project::find_loc;
 use serde::{
@@ -45,7 +45,7 @@ trait Finish {
 impl Finish for *const i8 {
     unsafe fn finish(&self) -> ! {
         let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
-        libc::fprintf(stderr, "ERROR: %s\n\0".as_ptr() as _, *self);
+        libc::fprintf(stderr, c"ERROR: %s\n".as_ptr() as _, *self);
         unsafe { exit(1) }
     }
 }
@@ -73,7 +73,7 @@ impl Finish for str {
         let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
         libc::fprintf(
             stderr,
-            "ERROR: %.*s\n\0".as_ptr() as _,
+            c"ERROR: %.*s\n".as_ptr() as _,
             self.len(),
             self.as_ptr(),
         );
@@ -86,7 +86,7 @@ impl Finish for Heaped<i8> {
         let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
         libc::fprintf(
             stderr,
-            "ERROR: %.*s\n\0".as_ptr() as _,
+            c"ERROR: %.*s\n".as_ptr() as _,
             self.size,
             self.content,
         );
@@ -99,7 +99,7 @@ impl Finish for Heaped<u8> {
         let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
         libc::fprintf(
             stderr,
-            "ERROR: %.*s\n\0".as_ptr() as _,
+            c"ERROR: %.*s\n".as_ptr() as _,
             self.size,
             self.content,
         );
@@ -113,56 +113,56 @@ unsafe fn usage(cmd: *const i8) {
     let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
     libc::fprintf(
         stderr,
-        "YourSBCode_tiny v%.*s by Naeio, the minimal encrypted file utility\n\0".as_ptr()
+        c"YourSBCode_tiny v%.*s by Naeio, the minimal encrypted file utility\n".as_ptr()
             as *const _,
         VERSION.len(),
         VERSION.as_ptr(),
     );
     libc::fprintf(
         stderr,
-        "Exported from YourSBCode v%.*s\n\0".as_ptr() as *const _,
+        c"Exported from YourSBCode v%.*s\n".as_ptr() as *const _,
         VERSION.len(),
         VERSION.as_ptr(),
     );
-    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
+    libc::fprintf(stderr, c"\n".as_ptr() as *const _);
     libc::fprintf(
         stderr,
-        "It allows to decrypt a password/encrypted file from\n\0".as_ptr() as *const _,
+        c"It allows to decrypt a password/encrypted file from\n".as_ptr() as *const _,
     );
-    libc::fprintf(stderr, "the current instance. \n\0".as_ptr() as *const _);
+    libc::fprintf(stderr, c"the current instance. \n".as_ptr() as *const _);
     libc::fprintf(
         stderr,
-        "If no argument is supplied, it opens an interactive interface\n\0".as_ptr() as *const _,
+        c"If no argument is supplied, it opens an interactive interface\n".as_ptr() as *const _,
     );
-    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
+    libc::fprintf(stderr, c"\n".as_ptr() as *const _);
     libc::fprintf(
         stderr,
-        "USAGE: %s [-h|--help] [-v|--version] [clear | <KIND> <IDENTIFIER> [<OUTPUT>]]\n\0".as_ptr()
+        c"USAGE: %s [-h|--help] [-v|--version] [clear | <KIND> <IDENTIFIER> [<OUTPUT>]]\n".as_ptr()
             as *const _,
         cmd,
     );
-    libc::fprintf(stderr, "\n\0".as_ptr() as *const _);
-    libc::fprintf(stderr, "Arguments:\n\0".as_ptr() as *const _);
+    libc::fprintf(stderr, c"\n".as_ptr() as *const _);
+    libc::fprintf(stderr, c"Arguments:\n".as_ptr() as *const _);
     libc::fprintf(
         stderr,
-        "  clear \tclears the clipboard\n\0".as_ptr() as *const _,
+        c"  clear \tclears the clipboard\n".as_ptr() as *const _,
     );
     libc::fprintf(
         stderr,
-        "  <KIND> \tThe kind of data to decrypt. Either `password` or `file`.\n\0".as_ptr()
+        c"  <KIND> \tThe kind of data to decrypt. Either `password` or `file`.\n".as_ptr()
             as *const _,
     );
     libc::fprintf(
         stderr,
-        "  <IDENTIFIER> \tThe identifier of the data to decrypt\n\0".as_ptr() as *const _,
+        c"  <IDENTIFIER> \tThe identifier of the data to decrypt\n".as_ptr() as *const _,
     );
     libc::fprintf(
         stderr,
-        "  <OUTPUT> \tWhen decrypting a file, write result in said\n\0".as_ptr() as *const _,
+        c"  <OUTPUT> \tWhen decrypting a file, write result in said\n".as_ptr() as *const _,
     );
     libc::fprintf(
         stderr,
-        "           \tfile instead of stdout\n\0".as_ptr() as *const _,
+        c"           \tfile instead of stdout\n".as_ptr() as *const _,
     );
 }
 
@@ -338,7 +338,7 @@ impl<'de> Deserialize<'de> for Password {
 
         struct FieldVisit;
 
-        impl<'de> Visitor<'de> for FieldVisit {
+        impl Visitor<'_> for FieldVisit {
             type Value = Field;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -457,7 +457,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
     if args.len() < 3 {
         unsafe {
             let stderr = fdopen(STDERR_FILENO, "w".as_ptr() as _);
-            libc::fprintf(stderr, "Missing argument <IDENTIFIER>\n\0".as_ptr() as _);
+            libc::fprintf(stderr, c"Missing argument <IDENTIFIER>\n".as_ptr() as _);
         }
         return 0;
     }
@@ -500,7 +500,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const i8) -> isize {
         };
         for bloc in content {
             if let Some(v) = bloc {
-                unsafe { fprintf(output, "%.*s\0".as_ptr() as _, v.len(), v.as_ptr()) };
+                unsafe { fprintf(output, c"%.*s".as_ptr() as _, v.len(), v.as_ptr()) };
             } else {
                 unsafe { "Invalid content".finish() }
             }
