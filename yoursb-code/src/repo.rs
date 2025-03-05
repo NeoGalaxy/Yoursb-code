@@ -181,20 +181,3 @@ pub fn find_elements<'a>(
         })
         .map(move |e| e.map(|name| root.join(dir2.join(name)))))
 }
-
-// pub(crate) fn write_embedded_execs(instance_dir: &Path) -> Result<(), errors::Error> {
-//     // let windows = include_bytes!("../embedded_execs/windows.exe");
-//     let linux = include_bytes!("../embedded_execs/linux");
-//     // let osx = include_bytes!();
-//     let mut file =
-//         _try!([instance_dir.join("linux.bin")] fs::File::create(instance_dir.join("linux.bin")));
-//     _try!([instance_dir.join("linux.bin")] file.write_all(linux));
-//     #[cfg(unix)]
-//     {
-//         use std::os::unix::fs::PermissionsExt;
-//         let perms = Permissions::from_mode(0o755);
-//         _try!([instance_dir.join("linux.bin")] file.set_permissions(perms));
-//     }
-//     _try!([instance_dir.join("VERSION")] fs::write(instance_dir.join("VERSION"), "EMBEDDED_VERSION"));
-//     Ok(())
-// }

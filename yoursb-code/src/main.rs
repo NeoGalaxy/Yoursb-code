@@ -60,12 +60,6 @@ pub enum Commands {
         /// The location of the instance to create. Note that this is an alias to the `-i`{n}
         /// global option, and if both are given, `location` takes priority.
         location: Option<RepoPath>,
-
-        /// The created instance will be an embedded instance, with an included executable.{n}
-        /// Useful to put on an USB stick. Note that all USB formats does not support running{n}
-        /// applications, we advice to format your stick into NTFS if you're on windows or linux.
-        #[clap(short, long)]
-        embedded: bool,
     },
 
     /// Indicates where is the current instance, and where one would be attempted to be{n}
@@ -79,17 +73,6 @@ pub enum Commands {
     /// Aliases: `c`, `cl`
     #[clap(aliases = &["c", "cl"])]
     Clear,
-
-    /// Allows to install or update an embedded instance
-    Embedded {
-        /// The location of the instance to update.
-        location: RepoPath,
-
-        /// Force the "update", even if the existing version is a newer release than the
-        /// one that will be put instead
-        #[clap(short, long)]
-        force: bool,
-    },
 
     /// Deletes the YourSBCode instance designated by --instance. Alias: `del`
     #[clap(aliases = &["del"])]
@@ -259,10 +242,7 @@ fn main() -> Result<(), errors::Error> {
     let ctx = domain_cmd::Commands::new(CliCtx);
 
     match args.command {
-        Commands::Init { location, embedded } => {
-            if embedded {
-                todo!()
-            }
+        Commands::Init { location } => {
             ctx.init_intance(location.or(args.instance).unwrap_or_default(), None)?;
         }
         Commands::Locate => {
@@ -277,7 +257,6 @@ fn main() -> Result<(), errors::Error> {
             println!("The attempt of instance creation would be at {new_instance_loc}");
         }
         Commands::Clear => todo!(),
-        Commands::Embedded { location, force } => todo!(),
         Commands::Delete { force } => {
             let instance = ctx.get_instance(args.instance)?;
             if !force {
