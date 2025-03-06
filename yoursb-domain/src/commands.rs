@@ -1,6 +1,7 @@
 use alloc::vec;
 use chacha20poly1305::aead::heapless;
 use core::{iter, ops::RangeInclusive};
+use std::string::ToString;
 
 use alloc::{string::String, vec::Vec};
 use rand::{distributions::Uniform, rngs::OsRng, Rng};
@@ -32,11 +33,6 @@ impl<Ctx: Context> Commands<Ctx> {
         &self,
         loc: Option<Ctx::InstanceLoc>,
     ) -> Result<InstanceCommands<Ctx>, Ctx::Error> {
-        let loc = if let Some(loc) = loc {
-            loc
-        } else {
-            Ctx::Instance::locate()?
-        };
         Ok(InstanceCommands {
             ctx: self,
             instance: Ctx::Instance::open(loc)?,
@@ -59,9 +55,12 @@ where
 
         let password = match password {
             NewPasswordDetails::Known(pass) => pass,
-            NewPasswordDetails::Prompt => {
-                todo!()
-            }
+            NewPasswordDetails::Prompt => self
+                .ctx
+                .0
+                .prompt_secret("Enter the password")
+                .as_ref()
+                .to_string(),
             NewPasswordDetails::Random { len, allowed_chars } => {
                 indicate!(
                     &self.ctx.0,
@@ -287,7 +286,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             .0
             .prompt_secret("Please enter your instance passphrase");
 
-        let key = decrypt_key(encrypted_key, passphrase).unwrap();
+        let key = decrypt_key(encrypted_key, passphrase)?;
 
         let encrypted_content = self.instance.get_element(&id)?;
 
@@ -358,7 +357,7 @@ where
         let passphrase = passphrase.unwrap_or_else(|| {
             binding = Some(
                 self.0
-                    .prompt_secret("Please create a master passphrase for the instance:"),
+                    .prompt_secret("Please create a master passphrase for the instance"),
             );
             binding.as_ref().unwrap().as_ref()
         });

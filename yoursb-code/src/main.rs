@@ -13,6 +13,7 @@ pub mod repo;
 use std::fs;
 use std::io::{stdin, Read, Write};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -175,12 +176,9 @@ pub enum PasswordAction {
     Get {
         /// The password to find
         identifier: String,
-        /// Display the password in stdout
+        /// Display the password in stdout instead of copying it to clipboard
         #[arg(short, long)]
         disp: bool,
-        /// Prevents copying the password to your clipboard.
-        #[arg(long)]
-        no_copy: bool,
     },
     /// List all password ids, aliases: `l`, `ls`
     #[clap(aliases = &["l", "ls"])]
@@ -236,7 +234,16 @@ pub enum FileAction {
     },
 }
 
-fn main() -> Result<(), errors::Error> {
+fn main() -> ExitCode {
+    if let Err(error) = run() {
+        eprintln!("Error: {error}");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn run() -> Result<(), errors::Error> {
     let args = Cli::parse();
 
     let ctx = domain_cmd::Commands::new(CliCtx);
@@ -246,17 +253,33 @@ fn main() -> Result<(), errors::Error> {
             ctx.init_intance(location.or(args.instance).unwrap_or_default(), None)?;
         }
         Commands::Locate => {
-            let current = CliInstance::locate();
+            let current = CliInstance::open(args.instance.clone());
             let new_instance_loc = args.instance.unwrap_or_default();
 
             match current {
-                Ok(current) => println!("The current instance is located at {current}"),
-                Err(e) => println!("No current instance has been found: {e:?}"),
+                Ok(current) => {
+                    println!("The current instance is located at {}", current.location())
+                }
+                Err(e) => println!("No current instance has been found: {e}"),
             }
 
             println!("The attempt of instance creation would be at {new_instance_loc}");
+            println!();
+            println!("(Note: both these hints take in account the --instance option)");
         }
-        Commands::Clear => todo!(),
+        Commands::Clear => {
+            let res = arboard::Clipboard::new().and_then(|mut c| {
+                // Clear doen't seem to work on linux
+                c.set_text(String::from(" "))?;
+                // c.clear()?;
+                println!("== cleared clipboard ==");
+                sleep(Duration::from_millis(1000));
+                Ok(())
+            });
+            if let Err(err) = res {
+                println!("Unable to clear clipboard: {err}");
+            }
+        }
         Commands::Delete { force } => {
             let instance = ctx.get_instance(args.instance)?;
             if !force {
@@ -305,32 +328,26 @@ fn main() -> Result<(), errors::Error> {
                             Ok(())
                         });
                         if let Err(err) = res {
-                            println!("Unable to copy password to Clipboard: {err}");
+                            println!("Unable to copy password to clipboard: {err}");
                         } else {
-                            println!("== Password copied to Clipboard ==");
+                            println!("== Password copied to clipboard ==");
                         }
                     }
                 }
-                PasswordAction::Get {
-                    identifier,
-                    disp,
-                    no_copy,
-                } => {
+                PasswordAction::Get { identifier, disp } => {
                     let saved_password = instance.get_password(PathBufLeaf(identifier.into()))?;
-                    if !no_copy {
+                    if disp {
+                        println!("The password is: {}", saved_password.value.password);
+                    } else {
                         let res = arboard::Clipboard::new().and_then(|mut c| {
                             c.set_text(&saved_password.value.password)?;
+                            println!("== Password copied to clipboard ==");
                             sleep(Duration::from_millis(1000));
                             Ok(())
                         });
                         if let Err(err) = res {
-                            println!("Unable to copy password to Clipboard: {err}");
-                        } else {
-                            println!("== Password copied to Clipboard ==");
+                            println!("Unable to copy password to clipboard: {err}");
                         }
-                    }
-                    if disp {
-                        println!("The password is: {}", saved_password.value.password);
                     }
 
                     if let Some(data) = saved_password.value.data {

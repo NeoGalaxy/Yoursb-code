@@ -1,8 +1,10 @@
 //! This module defines the possible errors from this software
 
-use std::{io, path::PathBuf};
+use std::{fmt::Display, io, path::PathBuf};
 
-use yoursb_domain::crypto::DecryptionError;
+use yoursb_domain::crypto::{Argon2Error, DecryptionError, KeyDecryptionError};
+
+use crate::repo::RepoPath;
 
 // use crate::passwords::PasswordError;
 
@@ -18,10 +20,11 @@ pub enum Error {
     /// The key was invalid, the file was probably encrypted using another key
     InvalidKeyError,
     NoKey,
-    // Password(PasswordError),
-    NoRepo,
+    DecryptionError(DecryptionError<yoursb_domain::crypto::Never>),
+    PasswordHashingError(Argon2Error),
+    NoRepo(RepoPath),
     NoConfigDir,
-    NoLocalProj,
+    // NoLocalProj,
     RepoAlreadyExists,
     // The repo was corrupted
     Corrupted(CorruptionError),
@@ -32,6 +35,16 @@ pub enum Error {
 pub enum CorruptionError {
     InvalidKeyfile,
     InvalidEncryptedFile,
+}
+
+impl From<KeyDecryptionError> for Error {
+    fn from(err: KeyDecryptionError) -> Error {
+        match err {
+            KeyDecryptionError::DecryptionError(e) => Self::DecryptionError(e),
+            KeyDecryptionError::PasswordHashingError(e) => Self::PasswordHashingError(e),
+            KeyDecryptionError::InvalidPassphrase => Self::InvalidKeyError,
+        }
+    }
 }
 
 impl From<CorruptionError> for Error {
@@ -94,6 +107,72 @@ impl YoursbError for DecryptionError<std::io::Error> {
             DecryptionError::ReadError(e) => Error::FileError(data, e),
             DecryptionError::SmallChunk => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
             DecryptionError::CipherError => Error::Corrupted(CorruptionError::InvalidEncryptedFile),
+        }
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::FileError(path_buf, error) => {
+                write!(f, "can't use path {path_buf:?}: {error}")
+            }
+            Error::ConsoleError(error) => {
+                write!(f, "error while using the console: {error}")
+            }
+            Error::InvalidPasswordError => write!(f, "passphrase is invalid"),
+            Error::InvalidKeyError => write!(f, "can't decrypt: the wrong key is being used"),
+            Error::NoKey => write!(f, "there's no key in the instance"),
+            Error::NoRepo(path) => write!(f, "there's no '{path}' instance"),
+            Error::NoConfigDir => {
+                write!(f, "can't find a location for a global instance on this OS")
+            }
+            Error::DecryptionError(decryption_error) => match decryption_error {
+                DecryptionError::ReadError(e) => match *e {},
+                DecryptionError::SmallChunk => write!(
+                    f,
+                    "the encrypted file is of invalid size (probably truncated)"
+                ),
+                DecryptionError::CipherError => {
+                    write!(f, "a decryption error occured (cipher error / aead::Error)")
+                }
+            },
+            Error::PasswordHashingError(error) => {
+                write!(f, "couldn't hash the passphrase: ")?;
+                match error {
+                    Argon2Error::AdTooLong => write!(f, "unexpected AdTooLong"),
+                    Argon2Error::AlgorithmInvalid => write!(f, "unexpected AlgorithmInvalid"),
+                    Argon2Error::B64Encoding(_) => write!(f, "unexpected B64Encoding"),
+                    Argon2Error::KeyIdTooLong => write!(f, "unexpected KeyIdTooLong"),
+                    Argon2Error::OutputTooShort => write!(f, "unexpected OutputTooShort"),
+                    Argon2Error::OutputTooLong => write!(f, "unexpected OutputTooLong"),
+                    Argon2Error::SaltTooShort => write!(f, "unexpected SaltTooShort"),
+                    Argon2Error::SaltTooLong => write!(f, "unexpected SaltTooLong"),
+                    Argon2Error::VersionInvalid => write!(f, "unexpected VersionInvalid"),
+
+                    Argon2Error::MemoryTooLittle => write!(f, "not enough memory on host"),
+                    Argon2Error::MemoryTooMuch => write!(f, "too much memory on host"),
+                    Argon2Error::PwdTooLong => write!(f, "password too long"),
+                    Argon2Error::SecretTooLong => write!(f, "secret too long"),
+                    Argon2Error::ThreadsTooFew => write!(f, "not enough threads available on host"),
+                    Argon2Error::ThreadsTooMany => write!(f, "too much threads available on host"),
+                    Argon2Error::TimeTooSmall => write!(f, "not enough available time"),
+                }
+            }
+            Error::RepoAlreadyExists => write!(f, "there's already a repository here"),
+            Error::Corrupted(corruption_error) => {
+                write!(
+                    f,
+                    "the {} was corrupted (modified, replaced, truncated, ...).",
+                    {
+                        match corruption_error {
+                            CorruptionError::InvalidKeyfile => "repository's key",
+                            CorruptionError::InvalidEncryptedFile => "encrypted file",
+                        }
+                    }
+                )
+            }
+            Error::Abort => write!(f, "aborting"),
         }
     }
 }

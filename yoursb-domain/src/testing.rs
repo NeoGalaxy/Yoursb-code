@@ -48,6 +48,16 @@ impl TestInstance {
 
 pub struct TestCDist;
 
+#[derive(Debug)]
+pub struct TestErr;
+
+impl From<crate::crypto::KeyDecryptionError> for TestErr {
+    #[track_caller]
+    fn from(value: crate::crypto::KeyDecryptionError) -> Self {
+        panic!("{:?}", value)
+    }
+}
+
 impl Context for TestCtx {
     type Instance = TestInstance;
 
@@ -58,7 +68,7 @@ impl Context for TestCtx {
     type InstanceLoc = String;
 
     type FileRead = std::fs::File;
-    type Error = ();
+    type Error = TestErr;
 
     fn indicate<T: core::fmt::Display>(&self, val: T) {
         println!("[indicate] {val}");
@@ -110,11 +120,10 @@ impl InitInstanceContext for TestCtx {
 }
 
 impl Instance<TestCtx> for TestInstance {
-    fn locate() -> Result<String, ()> {
-        Ok("<located instance>".to_string())
-    }
-
-    fn open(loc: <TestCtx as Context>::InstanceLoc) -> Result<Self, <TestCtx as Context>::Error> {
+    fn open(
+        loc: Option<<TestCtx as Context>::InstanceLoc>,
+    ) -> Result<Self, <TestCtx as Context>::Error> {
+        let loc = loc.unwrap_or("<located instance>".to_string());
         assert!(Path::new(&loc).is_dir());
 
         let decrypted = [1u8; 32];
@@ -149,6 +158,10 @@ impl Instance<TestCtx> for TestInstance {
                 salt,
             },
         })
+    }
+
+    fn location(&self) -> <TestCtx as Context>::InstanceLoc {
+        self.root.to_string_lossy().to_string()
     }
 
     fn get_key(
@@ -188,10 +201,10 @@ impl Instance<TestCtx> for TestInstance {
                         PathOrLeaf::Leaf(PathBufLeaf(p))
                     })
                 } else {
-                    Err(())
+                    Err(TestErr)
                 }
             })),
-            Err(_) => Err(()),
+            Err(_) => Err(TestErr),
         }
     }
 }

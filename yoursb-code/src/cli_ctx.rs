@@ -1,7 +1,7 @@
 use std::{
     fmt::Display,
     fs::{self, create_dir_all, File},
-    io::{stdin, stdout, Read, Write},
+    io::{Read, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
     str::FromStr,
@@ -29,6 +29,7 @@ pub struct CliCtx;
 #[derive(Debug)]
 pub struct CliInstance {
     pub root: PathBuf,
+    pub is_global: bool,
 }
 
 impl CliInstance {
@@ -60,18 +61,15 @@ impl Context for CliCtx {
     where
         T: core::fmt::Display,
     {
-        print!("{prompt}: ");
-        let _ = stdout().flush();
-        let mut line = String::new();
-        loop {
-            match stdin().read_line(&mut line) {
-                Ok(_) => break,
+        let line = loop {
+            match rpassword::prompt_password(format!("{prompt}: ")) {
+                Ok(l) => break l,
                 Err(err) => match err.kind() {
                     std::io::ErrorKind::Interrupted => (),
                     _ => panic!("{}", err),
                 },
             }
-        }
+        };
         line.trim().to_string()
     }
 
@@ -103,7 +101,7 @@ impl InitInstanceContext for CliCtx {
         _try!([keypath] file.write_all(b"\n"));
         _try!([keypath] file.write_all(key.salt.as_str().as_bytes()));
 
-        Self::Instance::open(loc)
+        Self::Instance::open(Some(loc))
     }
     fn key_rng(&self) -> impl CryptoRngCore {
         OsRng
@@ -114,38 +112,44 @@ impl InitInstanceContext for CliCtx {
 }
 
 impl Instance<CliCtx> for CliInstance {
-    fn locate() -> Result<RepoPath, errors::Error> {
-        Ok(find_local_repo()?
-            .map(|p| RepoPath::Local(Some(p)))
-            .unwrap_or(RepoPath::Global))
-    }
-
-    fn open(loc: <CliCtx as Context>::InstanceLoc) -> Result<Self, errors::Error> {
-        let ysbc_dir = match loc {
-            RepoPath::Global => find_global_repo(),
-            RepoPath::Local(None) => find_local_repo()?,
-            RepoPath::Local(Some(path)) => {
-                path.canonicalize().ok().map(|p| p.join(LOCAL_REPO_SUBDIR))
-            }
+    fn open(loc: Option<<CliCtx as Context>::InstanceLoc>) -> Result<Self, errors::Error> {
+        let ysbc_dir = match &loc {
+            None => find_local_repo()?.or_else(find_global_repo),
+            Some(RepoPath::Global) => find_global_repo(),
+            Some(RepoPath::Local(None)) => find_local_repo()?,
+            Some(RepoPath::Local(Some(path))) => path
+                .canonicalize()
+                .ok()
+                .map(|p| p.join(LOCAL_REPO_SUBDIR))
+                .map(|p| (p, false)),
         };
 
-        let Some(ysbc_dir) = ysbc_dir else {
-            return Err(Error::NoRepo);
+        let Some((ysbc_dir, is_global)) = ysbc_dir else {
+            return Err(Error::NoRepo(loc.unwrap_or(RepoPath::Global)));
         };
 
         if !ysbc_dir.is_dir() {
-            return Err(Error::NoRepo);
+            return Err(Error::NoRepo(loc.unwrap_or(RepoPath::Global)));
         }
 
-        // Check key
+        Ok(Self {
+            root: ysbc_dir,
+            is_global,
+        })
+    }
 
-        Ok(Self { root: ysbc_dir })
+    fn location(&self) -> <CliCtx as Context>::InstanceLoc {
+        if self.is_global {
+            RepoPath::Global
+        } else {
+            RepoPath::Local(Some(self.root.clone()))
+        }
     }
 
     fn get_key(&mut self) -> Result<CryptedEncryptionKey, errors::Error> {
         let keypath = self.root.join(KEY_NAME);
-        if keypath.exists() {
-            return Err(errors::Error::RepoAlreadyExists);
+        if !keypath.exists() {
+            return Err(errors::Error::NoKey);
         }
 
         if let Some(p) = keypath.parent() {

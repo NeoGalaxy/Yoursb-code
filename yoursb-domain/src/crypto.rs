@@ -5,6 +5,7 @@ use core::iter;
 use argon2::{password_hash::SaltString, Argon2};
 use chacha20poly1305::{
     aead::{
+        self,
         heapless::{self, Vec},
         stream::{DecryptorBE32, EncryptorBE32},
     },
@@ -55,10 +56,12 @@ impl YsbcRead for std::fs::File {
     }
 }
 
+pub use argon2::Error as Argon2Error;
+
 #[derive(Debug)]
 pub enum KeyDecryptionError {
     DecryptionError(DecryptionError<Never>),
-    PasswordHashingError(argon2::Error),
+    PasswordHashingError(Argon2Error),
     InvalidPassphrase,
 }
 
@@ -274,7 +277,7 @@ impl<R: YsbcRead> YsbcRead for Decrypter<R> {
         };
         match res {
             Ok(()) => self.read(data),
-            Err(_) => Err(DecryptionError::CipherError),
+            Err(aead::Error) => Err(DecryptionError::CipherError),
         }
     }
 }

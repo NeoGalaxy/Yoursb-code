@@ -25,7 +25,7 @@ pub const FILES_DIR: &str = "files";
 
 /// A datastructure meant to designate if we use the global repo or a local one.
 /// It implements [`FromStr`] with as format either `global`, `local` or `local:<path>`.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub enum RepoPath {
     #[default]
     Global,
@@ -86,25 +86,16 @@ impl Display for RepoPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RepoPath::Local(None) => write!(f, "local"),
-            RepoPath::Local(Some(path_buf)) => write!(f, "local: {}", path_buf.display()),
+            RepoPath::Local(Some(path_buf)) => {
+                let dir = path_buf.parent().unwrap(); // Remove LOCAL_REPO_SUBDIR
+                write!(f, "local: {}", dir.display())
+            }
             RepoPath::Global => write!(f, "global"),
         }
     }
 }
 
 impl RepoPath {
-    pub fn find(&self) -> Result<PathBuf, errors::Error> {
-        match self {
-            RepoPath::Local(Some(path)) => path
-                .canonicalize()
-                .map_err(|e| errors::Error::FileError(path.clone(), e)),
-            RepoPath::Local(None) => {
-                find_local_repo().and_then(|proj| proj.ok_or(errors::Error::NoLocalProj))
-            }
-            RepoPath::Global => find_global_repo().ok_or(errors::Error::NoConfigDir),
-        }
-    }
-
     pub fn get_path(&self) -> Result<PathBuf, errors::Error> {
         match self {
             RepoPath::Local(Some(path)) => Ok(path.to_owned()),
@@ -123,22 +114,22 @@ impl RepoPath {
 ///
 /// If a repo is found, returns `Ok(path)` with the path directing to the root dir of the
 /// repo
-pub fn find_local_repo() -> Result<Option<PathBuf>, errors::Error> {
+pub fn find_local_repo() -> Result<Option<(PathBuf, bool)>, errors::Error> {
     let dir = _try!(current_dir(), [".".into()]);
 
     for parent in dir.ancestors() {
         let path = parent.join(LOCAL_REPO_SUBDIR);
         if let Ok(path) = path.canonicalize() {
-            return Ok(Some(path));
+            return Ok(Some((path, false)));
         }
     }
     Ok(None)
 }
 
 /// Searches for a repo in the config directories, returns `None` if it can't be found.
-pub fn find_global_repo() -> Option<PathBuf> {
+pub fn find_global_repo() -> Option<(PathBuf, bool)> {
     let config_dir = dirs::config_local_dir()?.join(GLOBAL_CONFIG_NAME);
-    config_dir.canonicalize().ok()
+    config_dir.canonicalize().ok().map(|p| (p, true))
 }
 
 /// Searches for files and directory in the repo root directory `root` with the prefix `prefix`.

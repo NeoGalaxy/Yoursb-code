@@ -11,7 +11,7 @@ macro_rules! indicate {
 }
 pub(crate) use indicate;
 
-use crate::crypto::{YsbcRead, NONCE_SIZE, TAG_SIZE};
+use crate::crypto::{self, YsbcRead, NONCE_SIZE, TAG_SIZE};
 
 pub use argon2::password_hash::SaltString;
 
@@ -37,7 +37,7 @@ pub trait Context: Sized {
     type InstanceLoc: Display;
 
     type FileRead: YsbcRead;
-    type Error;
+    type Error: From<crypto::KeyDecryptionError>;
 
     fn indicate<T: Display>(&self, val: T);
 
@@ -62,9 +62,9 @@ where
 }
 
 pub trait Instance<Ctx: Context>: Sized {
-    fn locate() -> Result<Ctx::InstanceLoc, Ctx::Error>;
+    fn open(loc: Option<Ctx::InstanceLoc>) -> Result<Self, Ctx::Error>;
 
-    fn open(loc: Ctx::InstanceLoc) -> Result<Self, Ctx::Error>;
+    fn location(&self) -> Ctx::InstanceLoc;
 
     fn get_key(&mut self) -> Result<CryptedEncryptionKey, Ctx::Error>;
     // fn set_key(&mut self, key: CryptedEncryptionKey) -> Result<(), Ctx::Error>;
