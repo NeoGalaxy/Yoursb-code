@@ -38,16 +38,16 @@ pub struct Cli {
     ///
     /// Either "global", "local" or "local:<PATH>":
     ///
-    /// * "global" will indicate to use a global instance of YourSBCode
+    /// - "global" will indicate to use a global instance of YourSBCode
     ///
-    /// * "local" will indicate to look in the current directory and its parents
-    ///   searching for a local directory. For the command "init", local will indicate
-    ///   to initialize the instance in the current directory
+    /// - "local" will indicate to look in the current directory and its parents
+    ///   searching for a local directory. {n}
+    ///   For the command "init", "local" indicates solely the current directory.
     ///
-    /// * "local:<PATH>" will indicate to look at the instance located at PATH
+    /// - "local:<PATH>" will indicate to look at the instance located at PATH
     ///
-    /// Defaults to "local" if there's a local instance, or "global" otherwise,
-    /// except for command `init`
+    /// Defaults to "local" if there's a local instance, or "global" otherwise.{n}
+    /// For the command `init`, always defaults to "global".
     #[arg(short, long)]
     instance: Option<RepoPath>,
     #[command(subcommand)]
