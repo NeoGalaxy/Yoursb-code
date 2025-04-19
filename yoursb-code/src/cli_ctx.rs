@@ -13,7 +13,8 @@ use yoursb_domain::{
     crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, SaltString, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PathOrLeaf, SaltString, SyncContext, WritableInstance,
+        CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
 
@@ -41,17 +42,19 @@ impl CliInstance {
 }
 
 impl Context for CliCtx {
-    type Instance = CliInstance;
-
     type FilePath<const IS_PASSWORD: bool> = PathBufPath;
 
     type FileLeaf<const IS_PASSWORD: bool> = PathBufLeaf;
 
     type InstanceLoc = RepoPath;
 
-    type FileRead = File;
-
     type Error = errors::Error;
+}
+
+impl SyncContext for CliCtx {
+    type Instance = CliInstance;
+
+    type FileRead = File;
 
     fn indicate<T: core::fmt::Display>(&self, val: T) {
         println!("{val}");

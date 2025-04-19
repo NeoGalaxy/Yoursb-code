@@ -34,6 +34,14 @@ impl<R: YsbcRead + ?Sized> YsbcRead for &mut R {
     }
 }
 
+pub trait AsyncYsbcRead {
+    type Error;
+    fn read(
+        &mut self,
+        data: &mut [u8],
+    ) -> impl std::future::Future<Output = Result<usize, Self::Error>> + Send;
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Never {}
 

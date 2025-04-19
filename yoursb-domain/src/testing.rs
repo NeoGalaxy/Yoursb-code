@@ -22,7 +22,7 @@ use crate::{
     crypto::{Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PathOrLeaf, SyncContext, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
 
@@ -59,16 +59,18 @@ impl From<crate::crypto::KeyDecryptionError> for TestErr {
 }
 
 impl Context for TestCtx {
-    type Instance = TestInstance;
-
     type FilePath<const IS_PASSWORD: bool> = PathBuf;
 
     type FileLeaf<const IS_PASSWORD: bool> = PathBufLeaf;
 
     type InstanceLoc = String;
 
-    type FileRead = std::fs::File;
     type Error = TestErr;
+}
+impl SyncContext for TestCtx {
+    type Instance = TestInstance;
+
+    type FileRead = std::fs::File;
 
     fn indicate<T: core::fmt::Display>(&self, val: T) {
         println!("[indicate] {val}");
@@ -173,7 +175,7 @@ impl Instance<TestCtx> for TestInstance {
     fn get_element<const IS_PASSWORD: bool>(
         &self,
         path: &<TestCtx as Context>::FileLeaf<IS_PASSWORD>,
-    ) -> Result<<TestCtx as Context>::FileRead, <TestCtx as Context>::Error> {
+    ) -> Result<<TestCtx as SyncContext>::FileRead, <TestCtx as Context>::Error> {
         let path = self.compute_path(path.as_ref(), IS_PASSWORD);
         Ok(fs::File::open(path).unwrap())
     }

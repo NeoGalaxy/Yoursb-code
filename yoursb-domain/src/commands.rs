@@ -9,8 +9,8 @@ use rand::{distributions::Uniform, rngs::OsRng, Rng};
 use crate::{
     crypto::{create_key, decrypt_key, Decrypter, Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
-        indicate, CharsDist, Context, DecryptedFile, DecryptedPassword, ElementId, FileLeaf,
-        FilePath, InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf,
+        indicate, CharsDist, DecryptedFile, DecryptedPassword, ElementId, FileLeaf, FilePath,
+        InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf, SyncContext,
         WritableInstance,
     },
 };
@@ -19,12 +19,12 @@ use crate::{
 pub struct Commands<Ctx>(pub Ctx);
 
 #[derive(Debug)]
-pub struct InstanceCommands<'ctx, Ctx: Context> {
+pub struct InstanceCommands<'ctx, Ctx: SyncContext> {
     pub ctx: &'ctx Commands<Ctx>,
     pub instance: Ctx::Instance,
 }
 
-impl<Ctx: Context> Commands<Ctx> {
+impl<Ctx: SyncContext> Commands<Ctx> {
     pub fn new(ctx: Ctx) -> Self {
         Self(ctx)
     }
@@ -165,14 +165,14 @@ where
     }
 }
 
-impl<Ctx: Context> InstanceCommands<'_, Ctx> {
+impl<Ctx: SyncContext> InstanceCommands<'_, Ctx> {
     pub fn list_content<'a, const IS_PASSWORD: bool>(
         &'a self,
         root_dir: Ctx::FilePath<IS_PASSWORD>,
         pattern: &'a str,
     ) -> impl Iterator<Item = Result<ElementId<Ctx, IS_PASSWORD>, Ctx::Error>> + 'a {
-        struct Iter<'a, Ctx: Context, const IS_PASSWORD: bool> {
-            instance: &'a <Ctx as Context>::Instance,
+        struct Iter<'a, Ctx: SyncContext, const IS_PASSWORD: bool> {
+            instance: &'a <Ctx as SyncContext>::Instance,
             root_dir: Ctx::FilePath<IS_PASSWORD>,
             pattern: &'a str,
             to_check: Vec<PathOrLeaf<Ctx, IS_PASSWORD>>,
@@ -180,7 +180,7 @@ impl<Ctx: Context> InstanceCommands<'_, Ctx> {
             errs: Vec<Ctx::Error>,
         }
 
-        impl<Ctx: Context, const IS_PASSWORD: bool> Iterator for Iter<'_, Ctx, IS_PASSWORD> {
+        impl<Ctx: SyncContext, const IS_PASSWORD: bool> Iterator for Iter<'_, Ctx, IS_PASSWORD> {
             type Item = Result<ElementId<Ctx, IS_PASSWORD>, Ctx::Error>;
 
             fn next(&mut self) -> Option<Self::Item> {
