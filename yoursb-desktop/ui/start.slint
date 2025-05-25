@@ -1,0 +1,101 @@
+
+import { VerticalBox, GroupBox, GridBox, HorizontalBox, TextEdit, Button, LineEdit } from "std-widgets.slint";
+import { BigButton } from "components/home/big_button.slint";
+export component StartScreen inherits Window {
+    min-width: 500px;
+    property <bool> global_selected: false;
+    property <bool> local_selected: false;
+    function select(global: bool) {
+        global_selected = global;
+        local_selected = !global;
+    }
+
+    callback submit(global: bool, local_path: string);
+    callback browse_files(string) -> string;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 15px;
+        Rectangle {
+            Text {
+                font-size: 30px;
+                text: "YourSB Code";
+                horizontal-alignment: center;
+            }
+
+            height: 50px;
+            border-width: 3px;
+            border-color: @linear-gradient(180deg, #FFFFFF00 99%, #FFFFFF50 100%, #FFFFFF50 100%);
+        }
+
+        Text {
+            text: "Choose the instance to open:";
+            font-size: 15px;
+            height: 20px;
+        }
+
+        VerticalBox {
+            BigButton {
+                selected: global_selected;
+                clicked => {
+                    select(true)
+                }
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    padding-left: 5px;
+                    padding-right: 5px;
+                    Text {
+                        font-size: 16px;
+                        text: "Global instance";
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            BigButton {
+                selected: local_selected;
+                clicked => {
+                    select(false)
+                }
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 5px;
+                    Text {
+                        font-size: 16px;
+                        text: "Local instance";
+                        horizontal-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 10px;
+                        local_path := LineEdit {
+                            edited(text) => {
+                                select(false);
+                            }
+                            placeholder-text: "Instance path...";
+                        }
+
+                        Button {
+                            text: "Browse...";
+                            clicked => {
+                                select(false);
+                                local_path.text = browse_files(local_path.text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: "Open";
+            enabled: local_selected || global_selected;
+            clicked => {
+                submit(global_selected, local_path.text);
+            }
+        }
+    }
+}

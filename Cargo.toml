@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "yoursb-code",
+    "yoursb-code", "yoursb-desktop",
     "yoursb-domain",
 ]
 

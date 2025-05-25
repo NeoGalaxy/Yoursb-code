@@ -1,0 +1,16 @@
+export component BigButton {
+    in property <bool> selected: false;
+    callback clicked;
+    TouchArea {
+        Rectangle {
+            border-width: 1.5px;
+            border-color: root.selected ? #77f: #fff4;
+            border-radius: 7px;
+            @children
+
+        }
+        clicked => {
+            root.clicked()
+        }
+    }
+}

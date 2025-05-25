@@ -1,11 +1,14 @@
 
 [alias]
 
-yoursb = "run --message-format=short -r -p yoursb-code --bin yoursb-code --"
-yoursb-code = "run --message-format=short -r -p yoursb-code --bin yoursb-code --"
+ysbc = "run --message-format=short -r -p yoursb-code --bin ysbc --"
+yoursb = "ysbc"
+yoursb-code = "ysbc"
+ysbd = "run --message-format=short -r -p yoursb-desktop --bin ysbd --"
+desktop = "ysbd"
 
-build_tiny = "build --profile embedded -p yoursb-code-tiny --bin yoursb-code-tiny"
-build_tiny_dev = "build --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny"
-tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
-yoursb-tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
-yoursb-code-tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
+# build_tiny = "build --profile embedded -p yoursb-code-tiny --bin yoursb-code-tiny"
+# build_tiny_dev = "build --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny"
+# tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
+# yoursb-tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
+# yoursb-code-tiny = "run --message-format=short --profile embedded-dev -p yoursb-code-tiny --bin yoursb-code-tiny --"
