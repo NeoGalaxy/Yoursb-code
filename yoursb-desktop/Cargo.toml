@@ -4,13 +4,14 @@ version = "0.3.0"
 edition = "2021"
 
 [dependencies]
+chacha20poly1305 = { version = "0.10", features = ["stream"] }
 clap = { version = "4.4", features = ["derive"] }
 rpassword = "7.2"
 rand = "0.8.5"
 dirs = "5.0"
 arboard = "3.2.1"
 walkdir = "2"
-slint = "1.11.0"
+slint = "1.12.1"
 yoursb-domain = { path = "../yoursb-domain" }
 rfd = "0.15.3"
 
@@ -19,4 +20,4 @@ name = "ysbd"
 path = "src/main.rs"
 
 [build-dependencies]
-slint-build = "1.11.0"
+slint-build = "1.12.1"

@@ -1,0 +1,187 @@
+import { VerticalBox, GroupBox, GridBox, HorizontalBox, TextEdit, Button, LineEdit } from "std-widgets.slint";
+import { BigButton } from "components/home/big_button.slint";
+import { Header } from "components/common/headbar.slint";
+
+export enum EntryKind {
+    PassDir,
+    FileDir,
+    Pass,
+    File,
+}
+
+export struct Entry {
+    name: string,
+    kind: EntryKind,
+}
+
+export struct Category {
+    name: string,
+    icon: string,
+    content: [Entry],
+}
+
+export component HomeScreen inherits Window {
+    property <[[Category]]> Categories: [
+        [
+            {
+                name: "Pinned",
+                icon: "pin.png",
+                content: [{
+                    name: "Toto",
+                    kind: EntryKind.FileDir,
+                    name: "Google",
+                    kind: EntryKind.PassDir,
+                }],
+            }
+        ],
+        [
+            {
+                name: "Passwords",
+                icon: "pass.png",
+                content: [{
+                    name: "Google",
+                    kind: EntryKind.PassDir,
+                }],
+            },
+            {
+                name: "Files",
+                icon: "files.png",
+                content: [{
+                    name: "Toto",
+                    kind: EntryKind.FileDir,
+                }],
+            }
+        ],
+    ];
+
+    VerticalLayout {
+
+        Header {
+            width: 100%;
+            height: 100px;
+        }
+
+        // Rectangle {
+        //     width: 60%;
+        //     height: 3px;
+        //     background: #585858;
+        // }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            for category_line in Categories: HorizontalLayout {
+                for category in category-line: HorizontalLayout {
+                    for elem in category.content: Rectangle {
+                        border-color: #585858;
+                        border-width: 2px;
+                        border-radius: 1.5rem;
+                        Text {
+                            text: elem.name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component StartScreen inherits Window {
+    property <bool> global_selected: false;
+    property <bool> local_selected: false;
+    function select(global: bool) {
+        global_selected = global;
+        local_selected = !global;
+    }
+    callback submit(global: bool, local_path: string);
+    callback browse_files(string) -> string;
+    title: "YourSB code Desktop";
+    min-width: 500px;
+    min-height: 350px;
+    VerticalLayout {
+        width: 500px;
+        height: 350px;
+        padding: 10px;
+        spacing: 15px;
+        Rectangle {
+            Text {
+                font-size: 30px;
+                text: "YourSB Code";
+                horizontal-alignment: center;
+            }
+
+            height: 50px;
+            border-width: 3px;
+            border-color: @linear-gradient(180deg, #FFFFFF00 99%, #FFFFFF50 100%, #FFFFFF50 100%);
+        }
+
+        Text {
+            text: "Choose the instance to open:";
+            font-size: 15px;
+            height: 20px;
+        }
+
+        VerticalBox {
+            BigButton {
+                selected: global_selected;
+                clicked => {
+                    select(true)
+                }
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    padding-left: 5px;
+                    padding-right: 5px;
+                    Text {
+                        font-size: 16px;
+                        text: "Global instance";
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            BigButton {
+                selected: local_selected;
+                clicked => {
+                    select(false)
+                }
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 5px;
+                    Text {
+                        font-size: 16px;
+                        text: "Local instance";
+                        horizontal-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 10px;
+                        local_path := LineEdit {
+                            edited(text) => {
+                                select(false);
+                            }
+                            placeholder-text: "Instance path...";
+                        }
+
+                        Button {
+                            text: "Browse...";
+                            clicked => {
+                                select(false);
+                                local_path.text = browse_files(local_path.text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: "Open";
+            enabled: local_selected || global_selected;
+            clicked => {
+                submit(global_selected, local_path.text);
+            }
+        }
+    }
+}

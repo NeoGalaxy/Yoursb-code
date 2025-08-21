@@ -1,0 +1,156 @@
+import { LineEdit } from "std-widgets.slint";
+export component SearchBar inherits Rectangle {
+    in-out property <string> search-text <=> input.text;
+    in property <bool> read-only <=> input.read-only;
+
+    in property <string> placeholder-text: "Search...";
+    in property <bool> enabled <=> input.enabled;
+    in-out property <brush> placeholder-color: #585858;
+    in property <TextHorizontalAlignment> horizontal-alignment <=> input.horizontal-alignment;
+    in property <brush> text-color: white;
+    in property <length> margin;
+    in property <length> font-size <=> input.font-size;
+    in property <InputType> input-type <=> input.input-type;
+    in property <int> font-weight <=> input.font-weight;
+    out property <bool> has-focus: input.has-focus;
+    in property <color> selection-background-color <=> input.selection-background-color;
+    in property <color> selection-foreground-color <=> input.selection-foreground-color;
+
+    callback accepted(text: string);
+    callback edited(text: string);
+    callback key-pressed(event: KeyEvent) -> EventResult;
+    callback key-released(event: KeyEvent) -> EventResult;
+
+    public function set-selection-offsets(start: int, end: int) {
+        input.set-selection-offsets(start, end);
+    }
+
+    public function select-all() {
+        input.select-all();
+    }
+
+    public function clear-selection() {
+        input.clear-selection();
+    }
+
+    public function cut() {
+        input.cut();
+    }
+
+    public function copy() {
+        input.copy();
+    }
+
+    public function paste() {
+        input.paste();
+    }
+
+    border-color: #585858;
+    border-width: font-size / 8;
+    border-radius: font-size / 4;
+    min-width: 10 * font-size;
+    HorizontalLayout {
+        padding: font-size / 3;
+        Image {
+            source: @image-url("../../../../images/search.svg");
+            colorize: #FFF;
+        }
+
+        spacing: self.padding;
+        input-rect := Rectangle {
+            horizontal-stretch: 1;
+            // on width < 1px or if the `TextInput` is clipped it cannot be focused therefore min-width 1px
+            // min-height: input.preferred-height;
+            clip: true;
+            forward-focus: input;
+
+            placeholder := Text {
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                text: (root.search-text == "" && input.preedit-text == "") ? root.placeholder-text : "";
+                font-size: input.font-size;
+                font-italic: input.font-italic;
+                font-weight: input.font-weight;
+                font-family: input.font-family;
+                color: root.placeholder-color;
+                horizontal-alignment: root.horizontal-alignment;
+                // `accessible-placeholder-text` is set on LineEdit already
+                accessible-role: none;
+            }
+
+            ContextMenuArea {
+                Menu {
+                    MenuItem {
+                        title: @tr("Cut");
+                        enabled: root.enabled;
+                        activated => {
+                            input.cut();
+                        }
+                    }
+
+                    MenuItem {
+                        title: @tr("Copy");
+                        activated => {
+                            input.copy();
+                        }
+                    }
+
+                    MenuItem {
+                        title: @tr("Paste");
+                        enabled: root.enabled;
+                        activated => {
+                            input.paste();
+                        }
+                    }
+
+                    MenuItem {
+                        title: @tr("Select All");
+                        activated => {
+                            input.select-all();
+                        }
+                    }
+                }
+
+                input := TextInput {
+                    property <length> computed-x;
+
+                    // font-size: 2rem;
+
+                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                    width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                    height: 100%;
+                    vertical-alignment: center;
+                    single-line: true;
+                    color: root.text-color;
+                    // Disable TextInput's built-in accessibility support as the widget takes care of that.
+                    accessible-role: none;
+
+                    cursor-position-changed(cursor-position) => {
+                        if cursor-position.x + self.computed_x < root.margin {
+                            self.computed_x = - cursor-position.x + root.margin;
+                        } else if cursor-position.x + self.computed_x > parent.width - root.margin - self.text-cursor-width {
+                            self.computed_x = parent.width - cursor-position.x - root.margin - self.text-cursor-width;
+                        }
+                    }
+
+                    accepted => {
+                        root.accepted(self.text);
+                    }
+
+                    edited => {
+                        root.edited(self.text);
+                    }
+
+                    key-pressed(event) => {
+                        root.key-pressed(event)
+                    }
+
+                    key-released(event) => {
+                        root.key-released(event)
+                    }
+                }
+            }
+        }
+    }
+}

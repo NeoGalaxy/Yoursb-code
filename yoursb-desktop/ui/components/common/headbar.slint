@@ -1,0 +1,32 @@
+import { LineEdit } from "std-widgets.slint";
+import { SearchBar } from "../utils/seachbar.slint";
+
+export component Header {
+    max-height: 10px;
+    min-height: 10px;
+    HorizontalLayout {
+        padding: 20px;
+        alignment: space-between;
+        min-width: title.min-width + bar.min-width + 3rem;
+        title := HorizontalLayout {
+            Image {
+                source: @image-url("../../../../images/ysbc-dark.png");
+                width: title-text.font-size * 1.7;
+            }
+
+            spacing: title-text.font-size * 0.2;
+
+            title-text := Text {
+                font-size: 2.5rem;
+                font-weight: 500;
+                text: "YourSB Code";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        bar := SearchBar {
+            font-size: 2rem;
+        }
+    }
+}
