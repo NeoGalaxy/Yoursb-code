@@ -9,6 +9,7 @@ export component Header {
         alignment: space-between;
         min-width: title.min-width + bar.min-width + 3rem;
         title := HorizontalLayout {
+            height: title-text.font-size * 2;
             Image {
                 source: @image-url("../../../../images/ysbc-dark.png");
                 width: title-text.font-size * 1.7;
@@ -25,8 +26,12 @@ export component Header {
             }
         }
 
-        bar := SearchBar {
-            font-size: 2rem;
+        bar := Rectangle {
+            width: 400px;
+            SearchBar {
+                font-size: title-text.font-size * 2 / 3;
+                height: title-text.font-size * 4 / 3;
+            }
         }
     }
 }

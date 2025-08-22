@@ -41,18 +41,71 @@ export component HomeScreen inherits Window {
                 content: [{
                     name: "Google",
                     kind: EntryKind.PassDir,
+                }, {
+                    name: "Google",
+                    kind: EntryKind.Pass,
                 }],
             },
             {
                 name: "Files",
                 icon: "files.png",
-                content: [{
-                    name: "Toto",
-                    kind: EntryKind.FileDir,
-                }],
+                content: [
+                    {
+                        name: "Toto1",
+                        kind: EntryKind.FileDir,
+                    },
+                    {
+                        name: "Toto2",
+                        kind: EntryKind.File,
+                    },
+                    {
+                        name: "Toto3",
+                        kind: EntryKind.FileDir,
+                    },
+                    {
+                        name: "Toto4",
+                        kind: EntryKind.File,
+                    },
+                    {
+                        name: "Toto5",
+                        kind: EntryKind.FileDir,
+                    },
+                    {
+                        name: "Toto6",
+                        kind: EntryKind.File,
+                    },
+                    {
+                        name: "Toto7",
+                        kind: EntryKind.FileDir,
+                    },
+                    {
+                        name: "Toto8",
+                        kind: EntryKind.File,
+                    },
+                    {
+                        name: "Toto9",
+                        kind: EntryKind.FileDir,
+                    },
+                    {
+                        name: "Toto10",
+                        kind: EntryKind.File,
+                    }
+                ],
             }
         ],
     ];
+
+    pure function file-kind-image(kind: EntryKind) -> image {
+        if kind == EntryKind.File {
+            return @image-url("../../images/file.svg");
+        } else if kind == EntryKind.Pass {
+            return @image-url("../../images/pass.svg");
+        } else if kind == EntryKind.FileDir {
+            return @image-url("../../images/dir.svg");
+        } else {
+            return @image-url("../../images/dir.svg");
+        }
+    }
 
     VerticalLayout {
 
@@ -61,22 +114,57 @@ export component HomeScreen inherits Window {
             height: 100px;
         }
 
-        // Rectangle {
-        //     width: 60%;
-        //     height: 3px;
-        //     background: #585858;
-        // }
+        Rectangle {
+            height: 3px;
+            Rectangle {
+                width: parent.width - 3.5rem;
+                background: #585858;
+                border-radius: 1rem;
+            }
+        }
+
+        Rectangle {
+            height: 1rem;
+        }
 
         VerticalLayout {
+            alignment: start;
             vertical-stretch: 1;
+            spacing: 2rem;
+            padding: 1rem;
             for category_line in Categories: HorizontalLayout {
-                for category in category-line: HorizontalLayout {
-                    for elem in category.content: Rectangle {
-                        border-color: #585858;
-                        border-width: 2px;
-                        border-radius: 1.5rem;
-                        Text {
-                            text: elem.name;
+                spacing: 1.5rem;
+                for category in category-line: Rectangle {
+                    private property <length> element-width: 9rem;
+                    private property <length> element-height: 2rem;
+
+                    // Force equal size of each element
+                    preferred-width: 1px;
+                    min-width: 1px;
+
+                    border-color: #585858;
+                    border-width: 2px;
+                    border-radius: 1.5rem;
+                    HorizontalLayout {
+                        padding: 1.6rem;
+                        spacing: 1rem;
+                        alignment: start;
+                        for elem in category.content: HorizontalLayout {
+                            width: element-width;
+                            height: element-height;
+                            spacing: 0.3rem;
+                            alignment: start;
+                            Image {
+                                source: root.file-kind-image(elem.kind);
+                                width: element-height;
+                            }
+
+                            Rectangle {
+                                Text {
+                                    text: elem.name;
+                                    font-weight: 500;
+                                }
+                            }
                         }
                     }
                 }

@@ -50,13 +50,16 @@ export component SearchBar inherits Rectangle {
     border-radius: font-size / 4;
     min-width: 10 * font-size;
     HorizontalLayout {
-        padding: font-size / 3;
+        alignment: start;
+
+        padding-left: font-size * 2 / 3;
+        padding-right: font-size * 2 / 3;
+        spacing: self.padding-left;
         Image {
             source: @image-url("../../../../images/search.svg");
             colorize: #FFF;
         }
 
-        spacing: self.padding;
         input-rect := Rectangle {
             horizontal-stretch: 1;
             // on width < 1px or if the `TextInput` is clipped it cannot be focused therefore min-width 1px
@@ -77,6 +80,7 @@ export component SearchBar inherits Rectangle {
                 horizontal-alignment: root.horizontal-alignment;
                 // `accessible-placeholder-text` is set on LineEdit already
                 accessible-role: none;
+                padding: 0;
             }
 
             ContextMenuArea {
