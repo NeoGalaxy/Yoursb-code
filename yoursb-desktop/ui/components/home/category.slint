@@ -1,0 +1,162 @@
+import { ScrollView } from "std-widgets.slint";
+
+export enum EntryKind {
+    PassDir,
+    FileDir,
+    Pass,
+    File,
+}
+
+export struct Entry {
+    name: string,
+    kind: EntryKind,
+}
+
+export struct Category {
+    name: string,
+    icon: image,
+    content: [Entry],
+}
+
+export component CategoryView {
+    in property <Category> content: {
+        name: "Files",
+        icon: @image-url("../../../../images/file.svg"),
+        content: [
+            {
+                name: "Toto89999991",
+                kind: EntryKind.FileDir,
+            },
+            {
+                name: "Toto2",
+                kind: EntryKind.File,
+            },
+            {
+                name: "Toto3",
+                kind: EntryKind.FileDir,
+            },
+            {
+                name: "Toto4",
+                kind: EntryKind.File,
+            },
+            {
+                name: "Toto5",
+                kind: EntryKind.FileDir,
+            },
+            {
+                name: "Toto6",
+                kind: EntryKind.File,
+            },
+            {
+                name: "Toto7",
+                kind: EntryKind.FileDir,
+            },
+            {
+                name: "Toto89999991",
+                kind: EntryKind.File,
+            },
+            {
+                name: "Toto9",
+                kind: EntryKind.FileDir,
+            },
+            {
+                name: "Toto10",
+                kind: EntryKind.File,
+            }
+        ],
+    };
+
+    pure function file-kind-image(kind: EntryKind) -> image {
+        if kind == EntryKind.File {
+            return @image-url("../../../../images/file.svg");
+        } else if kind == EntryKind.Pass {
+            return @image-url("../../../../images/pass.svg");
+        } else if kind == EntryKind.FileDir {
+            return @image-url("../../../../images/dir.svg");
+        } else {
+            return @image-url("../../../../images/dir.svg");
+        }
+    }
+
+    Rectangle {
+        // Force equal size of each element
+        preferred-width: 1px;
+        min-width: inner.element-width + inner.padding-left + inner.padding-right + inner.spacing;
+        horizontal-stretch: 1;
+
+        min-height: cat-body.min-height;
+        border-color: #585858;
+        border-width: 2px;
+        border-radius: 1.5rem;
+
+        cat-body := VerticalLayout {
+            width: 100%;
+            // preferred-height: scroll.preferred-height;
+            min-height: cat-header.height + inner.element-height + inner.padding-top + inner.padding-bottom;
+            height: parent.height;
+
+            cat-header := HorizontalLayout {
+                alignment: start;
+                padding-left: 1rem;
+                padding-right: 1rem;
+                padding-top: 0.3rem;
+                padding-bottom: 0rem;
+                spacing: 0.5rem;
+                height: self.preferred-height;
+                Image {
+                    source: content.icon;
+                    height: 3rem;
+                    width: 3rem;
+                }
+
+                Rectangle {
+                    Text {
+                        text: content.name;
+                        font-size: 1.4rem;
+                        font-weight: 500;
+                    }
+                }
+            }
+
+            scroll := ScrollView {
+                preferred-height: inner.height;
+                viewport-width: self.width;
+                viewport-height: inner.height;
+                inner := Rectangle {
+                    height: (nb-elems-height) * (element-height + spacing) + self.padding-top + self.padding-bottom - spacing;
+                    
+                    // Internal layout
+                    private property <length> element-width: 9rem;
+                    private property <length> element-height: 2rem;
+                    private property <length> spacing: 1rem;
+                    private property <int> nb-elems-width: floor((self.width - self.padding-left - self.padding-right + spacing) / (element-width + spacing));
+                    private property <int> nb-elems-height: ceil((content.content.length) / nb-elems-width);
+                    padding-top: 0.6rem;
+                    padding-bottom: 1.6rem;
+                    padding-left: 1.6rem;
+                    padding-right: 1.6rem;
+
+                    for elem[i] in content.content: HorizontalLayout {
+                        x: parent.padding-left + mod(i, nb-elems-width) * (element-width + spacing);
+                        y: parent.padding-top + floor(i / nb-elems-width) * (element-height + spacing);
+                        width: element-width;
+                        height: element-height;
+                        spacing: 0.3rem;
+                        alignment: center;
+                        Image {
+                            source: root.file-kind-image(elem.kind);
+                            width: element-height;
+                        }
+
+                        Rectangle {
+                            Text {
+                                text: elem.name;
+                                font-weight: 500;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
