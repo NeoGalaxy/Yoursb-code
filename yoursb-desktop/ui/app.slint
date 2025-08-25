@@ -114,20 +114,21 @@ export component HomeScreen inherits Window {
 }
 
 export component StartScreen inherits Window {
-    property <bool> global_selected: false;
-    property <bool> local_selected: false;
+    in property <string> error_text: "";
+
+    private property <bool> global_selected: false;
+    private property <bool> local_selected: false;
     function select(global: bool) {
         global_selected = global;
         local_selected = !global;
     }
-    callback submit(global: bool, local_path: string);
+    callback open_instance(create: bool, global: bool, local_path: string);
     callback browse_files(string) -> string;
     title: "YourSB code Desktop";
     min-width: 500px;
-    min-height: 350px;
     VerticalLayout {
+        alignment: start;
         width: 500px;
-        height: 350px;
         padding: 10px;
         spacing: 15px;
         Rectangle {
@@ -204,11 +205,30 @@ export component StartScreen inherits Window {
             }
         }
 
-        Button {
-            text: "Open";
-            enabled: local_selected || global_selected;
-            clicked => {
-                submit(global_selected, local_path.text);
+        if error_text != "": Text {
+            text: error_text;
+            horizontal-alignment: center;
+            color: red;
+            font-weight: 800;
+            font-size: 1.2rem;
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            Button {
+                text: "Open";
+                enabled: local_selected || global_selected;
+                clicked => {
+                    open_instance(false, global_selected, local_path.text);
+                }
+            }
+
+            Button {
+                text: "Create";
+                enabled: local_selected || global_selected;
+                clicked => {
+                    open_instance(true, global_selected, local_path.text);
+                }
             }
         }
     }

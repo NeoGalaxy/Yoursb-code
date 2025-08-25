@@ -46,6 +46,15 @@ impl DesktopInstance {
     }
 }
 
+impl DesktopCtx {
+    pub fn new_dummy() -> DesktopCtx {
+        DesktopCtx {
+            indicate_canal: mpsc::channel().0,
+            prompt_canal: RefCell::new(mpsc::channel()),
+        }
+    }
+}
+
 impl Context for DesktopCtx {
     type FilePath<const IS_PASSWORD: bool> = PathBufPath;
 
