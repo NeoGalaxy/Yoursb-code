@@ -188,6 +188,7 @@ pub trait FileLeaf<const IS_PASSWORD: bool>: Display + Debug {
     fn get_suffix(&self, prefix: &Self::Path) -> &str;
 }
 
+#[derive(Debug)]
 pub enum PathOrLeaf<Ctx: Context, const IS_PASSWORD: bool> {
     Path(Ctx::FilePath<IS_PASSWORD>),
     Leaf(Ctx::FileLeaf<IS_PASSWORD>),

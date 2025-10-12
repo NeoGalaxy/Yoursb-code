@@ -213,11 +213,11 @@ impl Instance<DesktopCtx> for DesktopInstance {
         let d = _try!([dir_path] fs::read_dir(&dir_path));
         Ok(d.map(move |p| {
             let p = _try!([dir_path.clone()] p);
-            let p = p.path();
-            Ok(if p.is_dir() {
-                PathOrLeaf::Path(p.into())
+            let subpath = PathBuf::from(p.file_name());
+            Ok(if p.path().is_dir() {
+                PathOrLeaf::Path(subpath.into())
             } else {
-                PathOrLeaf::Leaf(PathBufLeaf(p))
+                PathOrLeaf::Leaf(PathBufLeaf(subpath))
             })
         }))
     }
@@ -382,7 +382,7 @@ impl<const IS_PASSWORD: bool> FilePath<IS_PASSWORD> for PathBufPath {
     type Leaf = PathBufLeaf;
 
     fn root() -> Self {
-        PathBufPath(PathBuf::from("/"))
+        PathBufPath(PathBuf::from("."))
     }
 
     fn with_dir(mut self, dir: impl AsRef<str>) -> Self {

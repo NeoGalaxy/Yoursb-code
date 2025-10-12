@@ -7,6 +7,12 @@ export enum EntryKind {
     File,
 }
 
+export enum Icon {
+    Pass,
+    File,
+    Pin,
+}
+
 export struct Entry {
     name: string,
     kind: EntryKind,
@@ -14,14 +20,23 @@ export struct Entry {
 
 export struct Category {
     name: string,
-    icon: image,
+    icon: Icon,
     content: [Entry],
 }
 
 export component CategoryView {
+    function get_icon(entry: Icon) -> image {
+        if entry == Icon.Pass {
+            return @image-url("../../../../images/pass.svg");
+        } else if entry == Icon.File {
+            return @image-url("../../../../images/file.svg");
+        } else {
+            return @image-url("../../../../images/pin.svg");
+        }
+    }
     in property <Category> content: {
         name: "Files",
-        icon: @image-url("../../../../images/file.svg"),
+        icon: Icon.File,
         content: [
             {
                 name: "Toto89999991",
@@ -104,7 +119,7 @@ export component CategoryView {
                 spacing: 0.5rem;
                 height: self.preferred-height;
                 Image {
-                    source: content.icon;
+                    source: get_icon(content.icon);
                     height: 3rem;
                     width: 3rem;
                 }

@@ -1,14 +1,14 @@
 import { VerticalBox, GroupBox, GridBox, HorizontalBox, TextEdit, Button, LineEdit, ScrollView } from "std-widgets.slint";
 import { BigButton } from "components/home/big_button.slint";
 import { Header } from "components/common/headbar.slint";
-import { CategoryView, Category, EntryKind, Entry } from "components/home/category.slint";
+import { CategoryView, Category, EntryKind, Entry, Icon } from "components/home/category.slint";
 
 export component HomeScreen inherits Window {
     in property <[[Category]]> Categories: [
         [
             {
                 name: "Pinned",
-                icon: @image-url("../../images/pin.svg"),
+                icon: Icon.Pin,
                 content: [{
                     name: "Toto",
                     kind: EntryKind.FileDir,
@@ -20,7 +20,7 @@ export component HomeScreen inherits Window {
         [
             {
                 name: "Passwords",
-                icon: @image-url("../../images/pass.svg"),
+                icon: Icon.Pass,
                 content: [{
                     name: "Google",
                     kind: EntryKind.PassDir,
@@ -31,7 +31,7 @@ export component HomeScreen inherits Window {
             },
             {
                 name: "Files",
-                icon: @image-url("../../images/file.svg"),
+                icon: Icon.File,
                 content: [
                     {
                         name: "Toto89999991",

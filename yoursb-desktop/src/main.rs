@@ -3,6 +3,7 @@ mod errors;
 mod repo;
 
 use std::{
+    iter,
     path::PathBuf,
     sync::{mpsc, Arc, Mutex},
     thread::{sleep, spawn},
@@ -10,10 +11,10 @@ use std::{
 };
 
 use rfd::FileDialog;
-use slint::{invoke_from_event_loop, SharedString};
+use slint::{invoke_from_event_loop, ModelRc, SharedString, VecModel};
 use yoursb_domain::{
     crypto::create_key,
-    interfaces::{InitInstanceContext, Instance},
+    interfaces::{FilePath, InitInstanceContext, Instance, PathOrLeaf},
 };
 
 use crate::{
@@ -43,7 +44,6 @@ fn open_instance() -> Option<DesktopInstance> {
 
             start_screen.on_open_instance({
                 let snd = snd.clone();
-                let start_screen = start_screen.as_weak();
                 move |create, global, local_path| {
                     let msg = if global {
                         RepoPath::Global
@@ -113,7 +113,52 @@ fn run_app() {
         return;
     };
     invoke_from_event_loop(move || {
+        let files = instance
+            .list_content::<false>(FilePath::<false>::root())
+            .map(|c| c.collect::<Vec<_>>())
+            .unwrap_or_default();
+        let passwords = instance
+            .list_content::<true>(FilePath::<true>::root())
+            .map(|c| c.collect::<Vec<_>>())
+            .unwrap_or_default();
+
         let home = HomeScreen::new().unwrap();
+        home.set_Categories(ModelRc::from([ModelRc::from([
+            Category {
+                content: ModelRc::new(VecModel::from_iter(files.into_iter().filter_map(
+                    |f| match f {
+                        Ok(PathOrLeaf::Leaf(p)) => Some(Entry {
+                            kind: EntryKind::File,
+                            name: p.to_string().into(),
+                        }),
+                        Ok(PathOrLeaf::Path(p)) => Some(Entry {
+                            kind: EntryKind::FileDir,
+                            name: p.to_string().into(),
+                        }),
+                        Err(_) => None,
+                    },
+                ))),
+                icon: Icon::File,
+                name: "Files".into(),
+            },
+            Category {
+                content: ModelRc::new(VecModel::from_iter(passwords.into_iter().filter_map(|f| {
+                    match f {
+                        Ok(PathOrLeaf::Leaf(p)) => Some(Entry {
+                            kind: EntryKind::Pass,
+                            name: p.to_string().into(),
+                        }),
+                        Ok(PathOrLeaf::Path(p)) => Some(Entry {
+                            kind: EntryKind::PassDir,
+                            name: p.to_string().into(),
+                        }),
+                        Err(_) => None,
+                    }
+                }))),
+                icon: Icon::Pass,
+                name: "Passwords".into(),
+            },
+        ])]));
         home.show().unwrap();
         home.window().on_close_requested(|| {
             slint::quit_event_loop().unwrap();
