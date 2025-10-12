@@ -13,9 +13,10 @@ use yoursb_domain::{
     crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, SaltString, SyncContext, WritableInstance,
-        CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PasswordInput, PasswordInputEvent, PathOrLeaf, SaltString, SyncContext,
+        WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
     },
+    Zeroize,
 };
 
 use crate::{
@@ -60,11 +61,8 @@ impl SyncContext for CliCtx {
         println!("{val}");
     }
 
-    fn prompt_secret<T>(&self, prompt: T) -> impl core::convert::AsRef<str>
-    where
-        T: core::fmt::Display,
-    {
-        let line = loop {
+    fn prompt_secret<T: Display>(&self, prompt: T, password_input: &mut PasswordInput<64>) {
+        let mut line = loop {
             match rpassword::prompt_password(format!("{prompt}: ")) {
                 Ok(l) => break l,
                 Err(err) => match err.kind() {
@@ -73,7 +71,8 @@ impl SyncContext for CliCtx {
                 },
             }
         };
-        line.trim().to_string()
+        password_input.update(PasswordInputEvent::TypeText(line.trim()));
+        line.zeroize();
     }
 
     fn set_clipboard(&self, content: &str) {

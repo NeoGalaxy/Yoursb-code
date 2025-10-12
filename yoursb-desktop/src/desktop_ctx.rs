@@ -15,7 +15,7 @@ use yoursb_domain::{
     crypto::{YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, SaltString, SyncContext, WritableInstance,
+        Instance, PasswordInput, PathOrLeaf, SaltString, SyncContext, WritableInstance,
         CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
@@ -73,16 +73,12 @@ impl SyncContext for DesktopCtx {
         // block_on(self.indicate_canal.clone().send(val.to_string())).unwrap();
     }
 
-    fn prompt_secret<T>(&self, prompt: T) -> String
-    where
-        T: core::fmt::Display,
-    {
+    fn prompt_secret<T: Display>(&self, prompt: T, password_input: &mut PasswordInput<64>) {
         let (prompt_canal, secret_canal) = &mut *self.prompt_canal.borrow_mut();
         todo!();
         // block_on(prompt_canal.send(prompt.to_string())).unwrap();
         todo!();
         // block_on(secret_canal.next()).unwrap()
-        "3".to_string()
     }
 
     fn set_clipboard(&self, content: &str) {
