@@ -1,0 +1,22 @@
+export component Entry {
+    in property <image> img;
+    in property <string> text;
+    TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        HorizontalLayout {
+            spacing: 0.3rem;
+            alignment: center;
+            Image {
+                source: img;
+                width: root.height;
+            }
+
+            Rectangle {
+                Text {
+                    text: text;
+                    font-weight: 500;
+                }
+            }
+        }
+    }
+}

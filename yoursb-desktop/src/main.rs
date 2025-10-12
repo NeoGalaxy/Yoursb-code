@@ -110,6 +110,7 @@ fn open_instance() -> Option<DesktopInstance> {
 }
 fn run_app() {
     let Some(instance) = open_instance() else {
+        slint::quit_event_loop().unwrap();
         return;
     };
     invoke_from_event_loop(move || {
@@ -173,7 +174,7 @@ fn main() -> Result<(), slint::PlatformError> {
         slint::run_event_loop_until_quit().unwrap();
     });
 
-    sleep(Duration::from_millis(100));
+    sleep(Duration::from_millis(100)); // Ensures the event loop thread started
     run_app();
 
     event_loop_thread.join().unwrap();
