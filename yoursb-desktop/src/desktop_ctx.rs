@@ -73,7 +73,7 @@ impl SyncContext for DesktopCtx {
         // block_on(self.indicate_canal.clone().send(val.to_string())).unwrap();
     }
 
-    fn prompt_secret<T>(&self, prompt: T) -> impl std::convert::AsRef<str>
+    fn prompt_secret<T>(&self, prompt: T) -> String
     where
         T: core::fmt::Display,
     {
@@ -82,7 +82,7 @@ impl SyncContext for DesktopCtx {
         // block_on(prompt_canal.send(prompt.to_string())).unwrap();
         todo!();
         // block_on(secret_canal.next()).unwrap()
-        "3"
+        "3".to_string()
     }
 
     fn set_clipboard(&self, content: &str) {

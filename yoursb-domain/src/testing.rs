@@ -17,12 +17,14 @@ use argon2::{
 };
 use chacha20poly1305::aead::heapless;
 use rand::rngs::OsRng;
+use zeroize::Zeroize;
 
 use crate::{
     crypto::{Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         CharsDist, Context, CryptedEncryptionKey, FileLeaf, FilePath, InitInstanceContext,
-        Instance, PathOrLeaf, SyncContext, WritableInstance, CRYPTED_ENCRYPTION_KEY_SIZE,
+        Instance, PasswordInput, PasswordInputEvent, PathOrLeaf, SyncContext, WritableInstance,
+        CRYPTED_ENCRYPTION_KEY_SIZE,
     },
 };
 
@@ -76,22 +78,19 @@ impl SyncContext for TestCtx {
         println!("[indicate] {val}");
     }
 
-    fn prompt_secret<T>(&self, prompt: T) -> impl core::convert::AsRef<str>
-    where
-        T: core::fmt::Display,
-    {
+    fn prompt_secret<T: Display>(&self, prompt: T, password_input: &mut PasswordInput<64>) {
         println!("[prompt_secret] {prompt}");
         if prompt.to_string().contains("instance") {
-            let pass = Self::INSTANCE_PASS;
-            println!(">> return passphrase: {pass}");
-            pass.to_string()
+            println!(">> return passphrase: {}", Self::INSTANCE_PASS);
+            password_input.update(PasswordInputEvent::TypeText(Self::INSTANCE_PASS));
         } else {
             let mut res = String::new();
             std::io::stdin().read_line(&mut res).unwrap();
             if res.get(res.len() - 1..res.len()) == Some("\n") {
                 res.pop();
             }
-            res
+            password_input.update(PasswordInputEvent::TypeText(&mut res));
+            res.zeroize();
         }
     }
 

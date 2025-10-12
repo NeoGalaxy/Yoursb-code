@@ -11,6 +11,7 @@ macro_rules! indicate {
     };
 }
 pub(crate) use indicate;
+use zeroize::Zeroizing;
 
 use crate::crypto::{self, AsyncYsbcRead, YsbcRead, NONCE_SIZE, TAG_SIZE};
 
@@ -18,6 +19,95 @@ pub use argon2::password_hash::SaltString;
 
 pub type EncryptionKey = [u8; 32];
 pub const CRYPTED_ENCRYPTION_KEY_SIZE: usize = 32 + TAG_SIZE + NONCE_SIZE;
+
+pub struct PasswordInput<const S: usize> {
+    content: Zeroizing<[char; S]>,
+    len: Zeroizing<usize>,
+    cursor_pos: Zeroizing<usize>,
+}
+
+pub enum PasswordInputEvent<'a> {
+    MoveTo(usize),
+    MoveRelative(isize),
+    TypeChar(char),
+    TypeText(&'a str),
+    DelRelativeRange(isize),
+}
+
+impl PasswordInput<64> {
+    pub(crate) fn into_secret(self) -> Zeroizing<([u8; const { 64 * 4 }], usize)> {
+        let mut len = 0;
+        let mut res = [0; 64 * 4];
+        for c in &self.content[..*self.len] {
+            len += c.encode_utf8(&mut res[len..]).len();
+        }
+        Zeroizing::new((res, len))
+    }
+}
+
+impl<const S: usize> PasswordInput<S> {
+    pub(crate) fn new() -> Self {
+        PasswordInput {
+            content: Zeroizing::new(['\0'; S]),
+            len: Zeroizing::new(0),
+            cursor_pos: Zeroizing::new(0),
+        }
+    }
+
+    pub fn update(&mut self, event: PasswordInputEvent<'_>) {
+        match event {
+            PasswordInputEvent::MoveTo(pos) => *self.cursor_pos = pos.min(*self.len),
+            PasswordInputEvent::MoveRelative(diff) => {
+                if diff < 0 {
+                    *self.cursor_pos = self.cursor_pos.saturating_sub(diff.unsigned_abs())
+                } else {
+                    *self.cursor_pos = self.cursor_pos.saturating_add(diff as usize).min(*self.len)
+                }
+            }
+            PasswordInputEvent::TypeChar(c) => {
+                let new_cursor_pos = *self.cursor_pos + 1;
+                self.content
+                    .copy_within(*self.cursor_pos..*self.len, new_cursor_pos);
+                self.content[*self.cursor_pos] = c;
+                *self.len += 1;
+                *self.cursor_pos = new_cursor_pos;
+            }
+            PasswordInputEvent::TypeText(txt) => {
+                let new_cursor_pos = *self.cursor_pos + txt.chars().count();
+                self.content
+                    .copy_within(*self.cursor_pos..*self.len, new_cursor_pos);
+                for (c, v) in self.content[*self.cursor_pos..new_cursor_pos]
+                    .iter_mut()
+                    .zip(txt.chars())
+                {
+                    *c = v;
+                }
+                *self.len += txt.len();
+                *self.cursor_pos = new_cursor_pos;
+            }
+            PasswordInputEvent::DelRelativeRange(size) => {
+                let slice_to_rm = if size < 0 {
+                    (*self.cursor_pos - size.unsigned_abs())..*self.cursor_pos
+                } else {
+                    *self.cursor_pos..(*self.cursor_pos + (size as usize))
+                };
+                *self.len = self.len.saturating_sub(slice_to_rm.end - slice_to_rm.start);
+                self.content
+                    .copy_within(slice_to_rm.end..*self.len, slice_to_rm.start);
+                *self.cursor_pos = slice_to_rm.start;
+            }
+        }
+    }
+    pub fn display_txt(&self, buffer: &mut String) {
+        buffer.truncate(*self.len);
+        while buffer.len() < *self.len {
+            buffer.push('*');
+        }
+    }
+    pub fn get_cursor_pos(&self) -> usize {
+        *self.cursor_pos
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct CryptedEncryptionKey {
@@ -45,7 +135,9 @@ pub trait SyncContext: Context {
 
     fn indicate<T: Display>(&self, val: T);
 
-    fn prompt_secret<T: Display>(&self, txt: T) -> impl AsRef<str>;
+    /// To ensure that any memory space with the secret is zero'ed, the
+    /// responsibility of handling the value is
+    fn prompt_secret<T: Display>(&self, txt: T, password_input: &mut PasswordInput<64>);
     fn set_clipboard(&self, content: &str);
 }
 

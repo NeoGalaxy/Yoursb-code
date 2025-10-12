@@ -1,7 +1,8 @@
 use alloc::vec;
 use chacha20poly1305::aead::heapless;
-use core::{iter, ops::RangeInclusive};
+use core::{fmt::Display, iter, ops::RangeInclusive};
 use std::string::ToString;
+use zeroize::Zeroizing;
 
 use alloc::{string::String, vec::Vec};
 use rand::{distributions::Uniform, rngs::OsRng, Rng};
@@ -10,8 +11,8 @@ use crate::{
     crypto::{create_key, decrypt_key, Decrypter, Encrypter, YsbcRead, BUFFER_LEN, TAG_SIZE},
     interfaces::{
         indicate, CharsDist, DecryptedFile, DecryptedPassword, ElementId, FileLeaf, FilePath,
-        InitInstanceContext, Instance, NewPasswordDetails, Password, PathOrLeaf, SyncContext,
-        WritableInstance,
+        InitInstanceContext, Instance, NewPasswordDetails, Password, PasswordInput, PathOrLeaf,
+        SyncContext, WritableInstance,
     },
 };
 
@@ -30,14 +31,23 @@ impl<Ctx: SyncContext> Commands<Ctx> {
     }
 
     pub fn get_instance(
-        &self,
+        &'_ self,
         loc: Option<Ctx::InstanceLoc>,
-    ) -> Result<InstanceCommands<Ctx>, Ctx::Error> {
+    ) -> Result<InstanceCommands<'_, Ctx>, Ctx::Error> {
         Ok(InstanceCommands {
             ctx: self,
             instance: Ctx::Instance::open(loc)?,
         })
     }
+}
+
+fn fully_prompt_secret_sync(
+    ctx: &Commands<impl SyncContext>,
+    txt: impl Display,
+) -> Zeroizing<([u8; 64 * 4], usize)> {
+    let mut password = PasswordInput::new();
+    ctx.0.prompt_secret(txt, &mut password);
+    password.into_secret()
 }
 
 impl<Ctx: InitInstanceContext> InstanceCommands<'_, Ctx>
@@ -55,12 +65,10 @@ where
 
         let password = match password {
             NewPasswordDetails::Known(pass) => pass,
-            NewPasswordDetails::Prompt => self
-                .ctx
-                .0
-                .prompt_secret("Enter the password")
-                .as_ref()
-                .to_string(),
+            NewPasswordDetails::Prompt => {
+                let secret = fully_prompt_secret_sync(self.ctx, "Enter the password");
+                str::from_utf8(&secret.0[..secret.1]).unwrap().to_string()
+            }
             NewPasswordDetails::Random { len, allowed_chars } => {
                 indicate!(
                     &self.ctx.0,
@@ -99,10 +107,9 @@ where
         let value = Password { password, data };
 
         let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
+        let passphrase =
+            fully_prompt_secret_sync(self.ctx, "Please enter your instance passphrase");
+        let passphrase = &passphrase.0[..passphrase.1];
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
@@ -143,10 +150,9 @@ where
         R: YsbcRead,
     {
         let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
+        let passphrase =
+            fully_prompt_secret_sync(self.ctx, "Please enter your instance passphrase");
+        let passphrase = &passphrase.0[..passphrase.1];
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
@@ -281,12 +287,11 @@ impl<Ctx: SyncContext> InstanceCommands<'_, Ctx> {
         id: Ctx::FileLeaf<true>,
     ) -> Result<DecryptedPassword<Ctx>, Ctx::Error> {
         let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
+        let passphrase =
+            fully_prompt_secret_sync(self.ctx, "Please enter your instance passphrase");
+        let passphrase = &passphrase.0[..passphrase.1];
 
-        let key = decrypt_key(encrypted_key, passphrase)?;
+        let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
         let encrypted_content = self.instance.get_element(&id)?;
 
@@ -325,10 +330,9 @@ impl<Ctx: SyncContext> InstanceCommands<'_, Ctx> {
         id: Ctx::FileLeaf<false>,
     ) -> Result<DecryptedFile<Ctx, Decrypter<Ctx::FileRead>>, Ctx::Error> {
         let encrypted_key = self.instance.get_key()?;
-        let passphrase = self
-            .ctx
-            .0
-            .prompt_secret("Please enter your instance passphrase");
+        let passphrase =
+            fully_prompt_secret_sync(self.ctx, "Please enter your instance passphrase");
+        let passphrase = &passphrase.0[..passphrase.1];
 
         let key = decrypt_key(encrypted_key, passphrase).unwrap();
 
@@ -348,19 +352,21 @@ where
     Ctx::Instance: WritableInstance<Ctx>,
 {
     pub fn init_intance(
-        &self,
+        &'_ self,
         path: Ctx::InstanceLoc,
         passphrase: Option<&str>,
-    ) -> Result<InstanceCommands<Ctx>, Ctx::Error> {
+    ) -> Result<InstanceCommands<'_, Ctx>, Ctx::Error> {
         indicate!(&self.0, "Creating a new YourSBCode instance at {path}.");
         let mut binding = None;
-        let passphrase = passphrase.unwrap_or_else(|| {
-            binding = Some(
-                self.0
-                    .prompt_secret("Please create a master passphrase for the instance"),
-            );
-            binding.as_ref().unwrap().as_ref()
+
+        let passphrase = passphrase.map(|p| p.as_bytes()).unwrap_or_else(|| {
+            binding = Some(fully_prompt_secret_sync(
+                self,
+                "Please create a master passphrase for the instance",
+            ));
+            &binding.as_ref().unwrap().0[..binding.as_ref().unwrap().1]
         });
+
         let key = create_key(passphrase, &self.0);
         Ok(InstanceCommands {
             ctx: self,

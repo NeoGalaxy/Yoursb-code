@@ -75,15 +75,11 @@ pub enum KeyDecryptionError {
 
 pub fn decrypt_key(
     key: CryptedEncryptionKey,
-    pass: impl AsRef<str>,
+    pass: impl AsRef<[u8]>,
 ) -> Result<EncryptionKey, KeyDecryptionError> {
     let mut hash = [0u8; 32];
     Argon2::default()
-        .hash_password_into(
-            pass.as_ref().as_bytes(),
-            key.salt.as_str().as_bytes(),
-            &mut hash,
-        )
+        .hash_password_into(pass.as_ref(), key.salt.as_str().as_bytes(), &mut hash)
         .map_err(KeyDecryptionError::PasswordHashingError)?;
     let mut decrypter =
         Decrypter::new(key.key.as_slice(), &hash).map_err(KeyDecryptionError::DecryptionError)?;
@@ -108,7 +104,7 @@ pub fn decrypt_key(
 }
 
 pub fn create_key<Ctx: InitInstanceContext>(
-    pass: impl AsRef<str>,
+    pass: impl AsRef<[u8]>,
     ctx: &Ctx,
 ) -> CryptedEncryptionKey
 where
@@ -117,11 +113,7 @@ where
     let salt = SaltString::generate(ctx.salt_rng());
     let mut pass_hash = [0; 32];
     Argon2::default()
-        .hash_password_into(
-            pass.as_ref().as_bytes(),
-            salt.as_str().as_bytes(),
-            &mut pass_hash,
-        )
+        .hash_password_into(pass.as_ref(), salt.as_str().as_bytes(), &mut pass_hash)
         .unwrap();
 
     let decrypted: [u8; 32] = ctx.key_rng().gen();
