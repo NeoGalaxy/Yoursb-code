@@ -87,7 +87,7 @@ impl InitInstanceContext for CliCtx {
         loc: Self::InstanceLoc,
         key: CryptedEncryptionKey,
     ) -> Result<Self::Instance, errors::Error> {
-        let path = loc.get_path()?;
+        let path = (loc.get_path())?;
 
         let keypath = path.join(KEY_NAME);
         if keypath.exists() {
@@ -119,14 +119,10 @@ impl Instance<CliCtx> for CliInstance {
             None => find_local_repo()?.or_else(find_global_repo),
             Some(RepoPath::Global) => find_global_repo(),
             Some(RepoPath::Local(None)) => find_local_repo()?,
-            Some(RepoPath::Local(Some(path))) => path
-                .canonicalize()
-                .ok()
-                .map(|p| p.join(LOCAL_REPO_SUBDIR))
-                .map(|p| (p, false)),
+            Some(RepoPath::Local(Some(path))) => path.canonicalize().ok().map(|p| (p, false)),
         };
 
-        let Some((ysbc_dir, is_global)) = ysbc_dir else {
+        let Some((ysbc_dir, is_global)) = (ysbc_dir) else {
             return Err(Error::NoRepo(loc.unwrap_or(RepoPath::Global)));
         };
 
@@ -203,11 +199,10 @@ impl Instance<CliCtx> for CliInstance {
         let d = _try!([dir_path] fs::read_dir(&dir_path));
         Ok(d.map(move |p| {
             let p = _try!([dir_path.clone()] p);
-            let p = p.path();
-            Ok(if p.is_dir() {
-                PathOrLeaf::Path(p.into())
+            Ok(if p.path().is_dir() {
+                PathOrLeaf::Path(directory.join(p.file_name()).into())
             } else {
-                PathOrLeaf::Leaf(PathBufLeaf(p))
+                PathOrLeaf::Leaf(PathBufLeaf(directory.join(p.file_name())))
             })
         }))
     }

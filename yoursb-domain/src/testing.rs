@@ -153,7 +153,7 @@ impl Instance<TestCtx> for TestInstance {
 
         let root = Path::new(&loc).canonicalize().unwrap();
         Ok(Self {
-            root: dbg!(root),
+            root,
             key: CryptedEncryptionKey {
                 key: key.try_into().unwrap(),
                 salt,

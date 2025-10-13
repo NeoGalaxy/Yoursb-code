@@ -184,7 +184,7 @@ pub enum PasswordAction {
     #[clap(aliases = &["l", "ls"])]
     List {
         /// If specified, will filter out all the passwords that do not start by this
-        #[clap(default_value = ".")]
+        #[clap(default_value = "")]
         prefix: String,
     },
     /// Delete a password, alias: `d`, `del`
@@ -324,7 +324,7 @@ fn run() -> Result<(), errors::Error> {
                     if !prompt && !no_copy {
                         let res = arboard::Clipboard::new().and_then(|mut c| {
                             c.set_text(&saved_password.value.password)?;
-                            sleep(Duration::from_millis(1000));
+                            sleep(Duration::from_millis(500));
                             Ok(())
                         });
                         if let Err(err) = res {
@@ -342,7 +342,7 @@ fn run() -> Result<(), errors::Error> {
                         let res = arboard::Clipboard::new().and_then(|mut c| {
                             c.set_text(&saved_password.value.password)?;
                             println!("== Password copied to clipboard ==");
-                            sleep(Duration::from_millis(1000));
+                            sleep(Duration::from_millis(500));
                             Ok(())
                         });
                         if let Err(err) = res {
@@ -357,10 +357,7 @@ fn run() -> Result<(), errors::Error> {
                     }
                 }
                 PasswordAction::List { prefix } => {
-                    let content = instance.list_content::<true>(
-                        PathBufPath(instance.instance.root.to_owned()),
-                        &prefix,
-                    );
+                    let content = instance.list_content::<true>(PathBufPath("".into()), &prefix);
                     println!("Passwords starting with {prefix:?}:");
 
                     for pass in content {
