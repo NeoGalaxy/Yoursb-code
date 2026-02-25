@@ -14,8 +14,9 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = [
 ] }
 argon2 = "0.5.3"
 zeroize = { version = "1.8.2", default-features = false }
+arrayvec = { version = "0.7.6", default-features = false }
 
 [features]
-std = ["alloc", "zeroize/std"]
+std = ["alloc", "zeroize/std", "arrayvec/std"]
 alloc = ["zeroize/alloc"]
 default = ["std"]

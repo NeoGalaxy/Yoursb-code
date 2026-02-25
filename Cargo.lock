@@ -5999,6 +5999,7 @@ name = "yoursb-domain"
 version = "0.3.0"
 dependencies = [
  "argon2",
+ "arrayvec",
  "chacha20poly1305",
  "getrandom 0.2.15",
  "rand 0.8.5",

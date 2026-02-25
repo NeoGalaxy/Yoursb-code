@@ -1,8 +1,14 @@
-use core::fmt::{Debug, Display};
+use core::{
+    fmt::{Debug, Display},
+    future::Future,
+};
 
+use crate::crypto::{self, AsyncYsbcRead, YsbcRead, NONCE_SIZE, TAG_SIZE};
 use alloc::string::String;
 use argon2::password_hash::rand_core::CryptoRngCore;
+use arrayvec::ArrayString;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 macro_rules! indicate {
     ($ctx:expr, $($content:tt)*) => {
@@ -11,14 +17,12 @@ macro_rules! indicate {
     };
 }
 pub(crate) use indicate;
-use zeroize::Zeroizing;
-
-use crate::crypto::{self, AsyncYsbcRead, YsbcRead, NONCE_SIZE, TAG_SIZE};
 
 pub use argon2::password_hash::SaltString;
 
 pub type EncryptionKey = [u8; 32];
 pub const CRYPTED_ENCRYPTION_KEY_SIZE: usize = 32 + TAG_SIZE + NONCE_SIZE;
+pub const ELEMENT_ID_SIZE: usize = 128;
 
 pub struct PasswordInput<const S: usize> {
     content: Zeroizing<[char; S]>,
@@ -116,16 +120,7 @@ pub struct CryptedEncryptionKey {
 }
 
 pub trait Context: Sized {
-    type FilePath<const IS_PASSWORD: bool>: FilePath<
-        IS_PASSWORD,
-        Leaf = Self::FileLeaf<IS_PASSWORD>,
-    >;
-    type FileLeaf<const IS_PASSWORD: bool>: FileLeaf<
-        IS_PASSWORD,
-        Path = Self::FilePath<IS_PASSWORD>,
-    >;
     type InstanceLoc: Display;
-
     type Error: From<crypto::KeyDecryptionError>;
 }
 
@@ -147,11 +142,8 @@ pub trait AsyncContext: Context {
 
     fn indicate<T: Display>(&self, val: T) -> impl std::future::Future<Output = ()> + Send;
 
-    fn prompt_secret<T: Display>(
-        &self,
-        txt: T,
-    ) -> impl core::future::Future<Output = impl AsRef<str>>;
-    fn set_clipboard(&self, content: &str) -> impl core::future::Future<Output = ()>;
+    fn prompt_secret<T: Display>(&self, txt: T) -> impl Future<Output = impl AsRef<str>>;
+    fn set_clipboard(&self, content: &str) -> impl Future<Output = ()>;
 }
 
 pub trait InitInstanceContext
@@ -180,7 +172,7 @@ where
     fn new_instance(
         path: Self::InstanceLoc,
         key: CryptedEncryptionKey,
-    ) -> impl core::future::Future<Output = Result<Self::Instance, Self::Error>>;
+    ) -> impl Future<Output = Result<Self::Instance, Self::Error>>;
 
     fn key_rng(&self) -> impl CryptoRngCore;
     fn salt_rng(&self) -> impl CryptoRngCore;
@@ -194,58 +186,26 @@ pub trait Instance<Ctx: SyncContext>: Sized {
     fn get_key(&mut self) -> Result<CryptedEncryptionKey, Ctx::Error>;
     // fn set_key(&mut self, key: CryptedEncryptionKey) -> Result<(), Ctx::Error>;
 
-    fn get_element<const IS_PASSWORD: bool>(
-        &self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> Result<Ctx::FileRead, Ctx::Error>;
-
-    fn list_content<const IS_PASSWORD: bool>(
-        &self,
-        directory: Ctx::FilePath<IS_PASSWORD>,
-    ) -> Result<impl Iterator<Item = Result<PathOrLeaf<Ctx, IS_PASSWORD>, Ctx::Error>>, Ctx::Error>;
+    fn get_element(&self, path: &str) -> Result<Ctx::FileRead, Ctx::Error>;
 }
 
 pub trait AsyncInstance<Ctx: AsyncContext>: Sized {
-    fn open(
-        loc: Option<Ctx::InstanceLoc>,
-    ) -> impl core::future::Future<Output = Result<Self, Ctx::Error>>;
+    fn open(loc: Option<Ctx::InstanceLoc>) -> impl Future<Output = Result<Self, Ctx::Error>>;
 
     fn location(&self) -> Ctx::InstanceLoc;
 
-    fn get_key(
-        &mut self,
-    ) -> impl core::future::Future<Output = Result<CryptedEncryptionKey, Ctx::Error>>;
+    fn get_key(&mut self) -> impl Future<Output = Result<CryptedEncryptionKey, Ctx::Error>>;
 
-    fn get_element<const IS_PASSWORD: bool>(
-        &self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> impl core::future::Future<Output = Result<Ctx::FileRead, Ctx::Error>>;
-
-    fn list_content<const IS_PASSWORD: bool>(
-        &self,
-        directory: Ctx::FilePath<IS_PASSWORD>,
-    ) -> impl core::future::Future<
-        Output = Result<
-            impl Iterator<Item = Result<PathOrLeaf<Ctx, IS_PASSWORD>, Ctx::Error>>,
-            Ctx::Error,
-        >,
-    >;
+    fn get_element(&self, path: &str) -> impl Future<Output = Result<Ctx::FileRead, Ctx::Error>>;
 }
 
 pub trait WritableInstance<Ctx: InitInstanceContext>: Instance<Ctx>
 where
     Ctx::Instance: WritableInstance<Ctx>,
 {
-    fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
-        &mut self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
-        content: R,
-    ) -> Result<(), Ctx::Error>;
+    fn write_element<R: YsbcRead>(&mut self, path: &str, content: R) -> Result<(), Ctx::Error>;
 
-    fn delete_element<const IS_PASSWORD: bool>(
-        &mut self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> Result<(), Ctx::Error>;
+    fn delete_element(&mut self, path: &str) -> Result<(), Ctx::Error>;
 
     fn delete(self) -> Result<(), (Ctx::Error, Self)>;
 }
@@ -254,48 +214,15 @@ pub trait AsyncWritableInstance<Ctx: AsyncInitInstanceContext>: AsyncInstance<Ct
 where
     Ctx::Instance: AsyncWritableInstance<Ctx>,
 {
-    fn write_element<const IS_PASSWORD: bool, R: YsbcRead>(
+    fn write_element<R: YsbcRead>(
         &mut self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
+        path: &str,
         content: R,
-    ) -> impl core::future::Future<Output = Result<(), Ctx::Error>>;
+    ) -> impl Future<Output = Result<(), Ctx::Error>>;
 
-    fn delete_element<const IS_PASSWORD: bool>(
-        &mut self,
-        path: &Ctx::FileLeaf<IS_PASSWORD>,
-    ) -> impl core::future::Future<Output = Result<(), Ctx::Error>>;
+    fn delete_element(&mut self, path: &str) -> impl Future<Output = Result<(), Ctx::Error>>;
 
-    fn delete(self) -> impl core::future::Future<Output = Result<(), (Ctx::Error, Self)>>;
-}
-
-pub trait FilePath<const IS_PASSWORD: bool>: Clone {
-    type Leaf: FileLeaf<IS_PASSWORD>;
-    fn root() -> Self;
-    fn with_dir(self, dir: impl AsRef<str>) -> Self;
-    fn get_suffix(&self, prefix: &Self) -> &str;
-    fn file(self, dir: impl AsRef<str>) -> Self::Leaf;
-}
-pub trait FileLeaf<const IS_PASSWORD: bool>: Display + Debug {
-    type Path: FilePath<IS_PASSWORD>;
-    fn get_suffix(&self, prefix: &Self::Path) -> &str;
-}
-
-#[derive(Debug)]
-pub enum PathOrLeaf<Ctx: Context, const IS_PASSWORD: bool> {
-    Path(Ctx::FilePath<IS_PASSWORD>),
-    Leaf(Ctx::FileLeaf<IS_PASSWORD>),
-}
-
-impl<Ctx: SyncContext, const IS_PASSWORD: bool> PathOrLeaf<Ctx, IS_PASSWORD>
-where
-    Ctx::FileLeaf<IS_PASSWORD>: Into<Ctx::FilePath<IS_PASSWORD>>,
-{
-    pub fn into_filepath(self) -> Ctx::FilePath<IS_PASSWORD> {
-        match self {
-            PathOrLeaf::Path(p) => p,
-            PathOrLeaf::Leaf(l) => l.into(),
-        }
-    }
+    fn delete(self) -> impl Future<Output = Result<(), (Ctx::Error, Self)>>;
 }
 
 pub trait CharsDist {
@@ -328,7 +255,7 @@ pub struct DecryptedFile<Ctx: SyncContext, R: YsbcRead> {
 }
 
 #[derive(Debug)]
-pub struct ElementId<Ctx: SyncContext, const IS_PASSWORD: bool>(pub Ctx::FileLeaf<IS_PASSWORD>);
+pub struct ElementId<Ctx: SyncContext>(pub ArrayString<ELEMENT_ID_SIZE>);
 // pub struct PasswordId<Ctx: Context>(pub(crate) Ctx::FileLeaf<true>);
 // pub struct FileId<Ctx: Context>(pub(crate) Ctx::FileLeaf<false>);
 
